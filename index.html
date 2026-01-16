@@ -12,49 +12,47 @@
         --accent: #6366f1;
         --accent-dark: #4f46e5;
         --smooth-ease: cubic-bezier(0.16, 1, 0.3, 1);
+        --ultra-smooth: cubic-bezier(0.8, 0, 0.2, 1);
       }
+      
       body {
         font-family: 'Plus Jakarta Sans', sans-serif;
         background-color: #ffffff;
         color: #0f172a;
         scroll-behavior: smooth;
         overflow-x: hidden;
-      }
-      .font-serif {
-        font-family: 'Playfair Display', serif;
-      }
-      
-      /* Premium Background */
-      .bg-studio {
-        background: radial-gradient(circle at 0% 0%, #f5f3ff 0%, transparent 50%),
-                    radial-gradient(circle at 100% 100%, #eff6ff 0%, transparent 50%);
+        -webkit-font-smoothing: antialiased;
       }
 
-      /* Premium Animations */
+      ::selection {
+        background: rgba(99, 102, 241, 0.15);
+        color: #4f46e5;
+      }
+
+      .font-serif { font-family: 'Playfair Display', serif; }
+      
+      /* Smooth Transitions */
+      .page-transition {
+        animation: slideUpFade 0.8s var(--smooth-ease) forwards;
+      }
+
+      @keyframes slideUpFade {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
       @keyframes revealUp {
         from { opacity: 0; transform: translateY(40px); filter: blur(10px); }
         to { opacity: 1; transform: translateY(0); filter: blur(0); }
       }
+
       @keyframes float {
-        0%, 100% { transform: translateY(0px) rotate(3deg); }
-        50% { transform: translateY(-20px) rotate(-1deg); }
-      }
-      @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
-      }
-      @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      @keyframes pulse-glow {
-        0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.2); }
-        50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.4); }
+        0%, 100% { transform: translateY(0px) rotate(0deg); }
+        50% { transform: translateY(-15px) rotate(1deg); }
       }
 
       .animate-reveal { animation: revealUp 1.2s var(--smooth-ease) forwards; opacity: 0; }
-      .animate-fade { animation: fadeIn 0.8s ease-out forwards; }
-      .animate-float { animation: float 6s ease-in-out infinite; }
+      .animate-float { animation: float 8s ease-in-out infinite; }
       
       .delay-100 { animation-delay: 100ms; }
       .delay-200 { animation-delay: 200ms; }
@@ -63,54 +61,54 @@
       .delay-500 { animation-delay: 500ms; }
 
       .glass {
-        background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.65);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.04);
       }
 
       .btn-premium {
         position: relative;
         overflow: hidden;
-        transition: all 0.6s var(--smooth-ease);
+        transition: all 0.5s var(--smooth-ease);
         z-index: 1;
       }
-      .btn-premium::before {
+
+      .btn-premium::after {
         content: '';
         position: absolute;
         top: 0; left: -100%; width: 100%; height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-        transition: 0.6s;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        transition: 0.5s;
         z-index: -1;
       }
-      .btn-premium:hover::before { left: 100%; }
+
+      .btn-premium:hover::after { left: 100%; }
+      
       .btn-premium:hover {
-        transform: scale(1.03) translateY(-4px);
-        box-shadow: 0 30px 60px -12px rgba(99, 102, 241, 0.35);
+        transform: translateY(-2px);
+        box-shadow: 0 20px 40px -10px rgba(99, 102, 241, 0.3);
       }
-      .btn-premium:active {
-        transform: scale(0.96) translateY(0);
-      }
+
+      .btn-premium:active { transform: scale(0.97); }
 
       .card-hover {
-        transition: all 0.5s var(--smooth-ease);
+        transition: all 0.6s var(--smooth-ease);
       }
+      
       .card-hover:hover {
-        transform: translateY(-12px) scale(1.01);
+        transform: translateY(-8px) scale(1.01);
+        box-shadow: 0 40px 80px -15px rgba(99, 102, 241, 0.1);
       }
 
-      /* Global Smoother Transition for all interactive elements */
-      a, button {
-        transition: all 0.3s var(--smooth-ease);
-      }
-
-      ::-webkit-scrollbar { width: 10px; }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 8px; }
       ::-webkit-scrollbar-track { background: #f8fafc; }
-      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 3px solid #f8fafc; }
+      ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 20px; border: 2px solid #f8fafc; }
       ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
     </style>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@^19.2.3",
@@ -126,7 +124,7 @@
 }
 </script>
 </head>
-  <body class="bg-studio">
+  <body>
     <div id="root"></div>
     <script type="module" src="index.tsx"></script>
   </body>

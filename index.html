@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -10,6 +11,7 @@
       :root {
         --accent: #6366f1;
         --accent-dark: #4f46e5;
+        --smooth-ease: cubic-bezier(0.16, 1, 0.3, 1);
       }
       body {
         font-family: 'Plus Jakarta Sans', sans-serif;
@@ -30,7 +32,7 @@
 
       /* Premium Animations */
       @keyframes revealUp {
-        from { opacity: 0; transform: translateY(30px); filter: blur(10px); }
+        from { opacity: 0; transform: translateY(40px); filter: blur(10px); }
         to { opacity: 1; transform: translateY(0); filter: blur(0); }
       }
       @keyframes float {
@@ -41,43 +43,71 @@
         0% { transform: translateX(-100%); }
         100% { transform: translateX(100%); }
       }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes pulse-glow {
+        0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.2); }
+        50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.4); }
+      }
 
-      .animate-reveal { animation: revealUp 1s cubic-bezier(0.19, 1, 0.22, 1) forwards; }
+      .animate-reveal { animation: revealUp 1.2s var(--smooth-ease) forwards; opacity: 0; }
+      .animate-fade { animation: fadeIn 0.8s ease-out forwards; }
       .animate-float { animation: float 6s ease-in-out infinite; }
+      
       .delay-100 { animation-delay: 100ms; }
       .delay-200 { animation-delay: 200ms; }
       .delay-300 { animation-delay: 300ms; }
+      .delay-400 { animation-delay: 400ms; }
+      .delay-500 { animation-delay: 500ms; }
 
       .glass {
         background: rgba(255, 255, 255, 0.7);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
       }
 
       .btn-premium {
         position: relative;
         overflow: hidden;
-        transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+        transition: all 0.6s var(--smooth-ease);
         z-index: 1;
       }
       .btn-premium::before {
         content: '';
         position: absolute;
         top: 0; left: -100%; width: 100%; height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-        transition: 0.5s;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        transition: 0.6s;
         z-index: -1;
       }
       .btn-premium:hover::before { left: 100%; }
       .btn-premium:hover {
-        transform: scale(1.05) translateY(-4px);
-        box-shadow: 0 25px 50px -12px rgba(99, 102, 241, 0.4);
+        transform: scale(1.03) translateY(-4px);
+        box-shadow: 0 30px 60px -12px rgba(99, 102, 241, 0.35);
+      }
+      .btn-premium:active {
+        transform: scale(0.96) translateY(0);
       }
 
-      ::-webkit-scrollbar { width: 8px; }
+      .card-hover {
+        transition: all 0.5s var(--smooth-ease);
+      }
+      .card-hover:hover {
+        transform: translateY(-12px) scale(1.01);
+      }
+
+      /* Global Smoother Transition for all interactive elements */
+      a, button {
+        transition: all 0.3s var(--smooth-ease);
+      }
+
+      ::-webkit-scrollbar { width: 10px; }
       ::-webkit-scrollbar-track { background: #f8fafc; }
-      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 3px solid #f8fafc; }
       ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
     </style>
   <script type="importmap">

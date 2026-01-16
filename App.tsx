@@ -17,13 +17,22 @@ const ClientLogin = lazy(() => import('./pages/ClientLogin.tsx'));
 const ClientDashboard = lazy(() => import('./pages/ClientDashboard.tsx'));
 
 /**
- * Lightweight Loading Fallback to satisfy fast preview initialization
+ * Premium Loading Fallback with shimmering studio identity
  */
 const LoadingFallback = () => (
-  <div className="min-h-screen flex items-center justify-center bg-white">
-    <div className="flex flex-col items-center gap-4">
-      <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400">Synchronizing Studio...</p>
+  <div className="min-h-screen flex items-center justify-center bg-white animate-fade">
+    <div className="flex flex-col items-center gap-6">
+      <div className="relative">
+        <div className="text-4xl font-serif font-black tracking-tighter text-indigo-900 opacity-20">LUMINA</div>
+        <div className="absolute inset-0 text-4xl font-serif font-black tracking-tighter text-indigo-600 animate-pulse overflow-hidden">
+          LUMINA
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.3s]"></div>
+        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.15s]"></div>
+        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce"></div>
+      </div>
     </div>
   </div>
 );
@@ -45,7 +54,8 @@ const AppContent: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen">
       {!isAdminDashboard && <Navbar />}
-      <main className="flex-grow">
+      {/* Container for smooth content appearance */}
+      <main className="flex-grow animate-fade">
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             <Route path="/" element={<Home />} />

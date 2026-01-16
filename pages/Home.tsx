@@ -1,7 +1,7 @@
 
 import React, { useEffect } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
-import { ArrowUpRight, Sparkles, CheckCircle, Zap, Users, Play, Star } from 'lucide-react';
+import { ArrowUpRight, Sparkles, Star } from 'lucide-react';
 import { SERVICES, getIcon } from '../constants.tsx';
 
 const { Link, useLocation } = ReactRouterDOM;
@@ -48,7 +48,7 @@ const Home: React.FC = () => {
                 </Link>
                 <button 
                   onClick={() => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="px-10 py-5 rounded-[2rem] text-lg font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 transition-all flex items-center justify-center gap-3"
+                  className="px-10 py-5 rounded-[2rem] text-lg font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 transition-all flex items-center justify-center gap-3 active:scale-95"
                 >
                   Explore Capabilities
                 </button>
@@ -60,7 +60,7 @@ const Home: React.FC = () => {
                  <img 
                   src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1000" 
                   alt="Abstract Art" 
-                  className="rounded-[4rem] shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-700"
+                  className="rounded-[4rem] shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)]"
                 />
               </div>
               <div className="absolute -top-10 -right-10 w-64 h-64 bg-pink-100 rounded-full blur-3xl opacity-50 -z-0"></div>
@@ -70,6 +70,7 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Ticker Section */}
       <section className="py-10 bg-slate-50 border-y border-slate-100 overflow-hidden">
         <div className="flex gap-20 animate-shimmer whitespace-nowrap opacity-30 grayscale items-center">
           {[1,2,3,4,5,6,7,8].map(i => (
@@ -78,15 +79,16 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Services Section */}
       <section id="services" className="py-32 bg-white scroll-mt-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-end mb-24 gap-10">
-            <div className="max-w-2xl">
+            <div className="max-w-2xl animate-reveal">
               <h2 className="text-6xl font-serif font-black text-indigo-900 mb-8 leading-tight">Mastering Every <br /> <span className="text-indigo-500 italic">Dimension</span></h2>
               <p className="text-xl text-slate-500">From the core of your brand to the pixels of your site, we offer end-to-end creative excellence.</p>
             </div>
-            <Link to="/request/general" className="text-indigo-600 font-black text-sm uppercase tracking-widest flex items-center gap-2 group">
-              See Full Suite <ArrowUpRight className="group-hover:translate-x-1 transition-transform" />
+            <Link to="/request/general" className="text-indigo-600 font-black text-sm uppercase tracking-widest flex items-center gap-2 group animate-reveal delay-100">
+              See Full Suite <ArrowUpRight className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
             </Link>
           </div>
 
@@ -95,7 +97,8 @@ const Home: React.FC = () => {
               <Link 
                 key={service.id} 
                 to={`/services/${service.id}`}
-                className="group relative bg-slate-50 rounded-[3rem] p-12 transition-all hover:bg-white hover:shadow-2xl hover:shadow-indigo-100 border border-transparent hover:border-indigo-50"
+                className={`group relative bg-slate-50 rounded-[3rem] p-12 card-hover hover:bg-white hover:shadow-2xl hover:shadow-indigo-100 border border-transparent hover:border-indigo-50 animate-reveal`}
+                style={{ animationDelay: `${(idx + 1) * 150}ms` }}
               >
                 <div className="w-16 h-16 bg-white rounded-[1.5rem] flex items-center justify-center text-indigo-600 shadow-sm mb-10 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-500">
                   {getIcon(service.icon)}
@@ -113,6 +116,7 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Stats Section */}
       <section className="py-40 bg-indigo-950 relative overflow-hidden">
         <img 
           src="https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=2000" 
@@ -127,7 +131,7 @@ const Home: React.FC = () => {
               { label: 'Client Retention', val: '99%' }
             ].map((stat, idx) => (
               <div key={idx} className="text-center group">
-                <div className="text-8xl font-serif font-black text-white mb-6 group-hover:scale-110 transition-transform duration-500">{stat.val}</div>
+                <div className="text-8xl font-serif font-black text-white mb-6 group-hover:scale-110 transition-transform duration-700">{stat.val}</div>
                 <div className="text-indigo-300 font-black uppercase tracking-[0.3em] text-xs">{stat.label}</div>
               </div>
             ))}
@@ -135,14 +139,15 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Testimonial Section */}
       <section className="py-32 bg-white">
         <div className="max-w-5xl mx-auto px-6 text-center">
-          <Star className="mx-auto text-indigo-600 mb-10" fill="currentColor" size={40} />
+          <Star className="mx-auto text-indigo-600 mb-10 animate-pulse" fill="currentColor" size={40} />
           <h2 className="text-4xl md:text-5xl font-serif font-bold text-indigo-900 mb-12 italic leading-relaxed">
             "Lumina is not just an agency; they are strategic partners who pushed our brand further than we ever thought possible."
           </h2>
           <div className="flex flex-col items-center">
-            <div className="w-20 h-20 rounded-full overflow-hidden mb-6 border-4 border-indigo-50">
+            <div className="w-20 h-20 rounded-full overflow-hidden mb-6 border-4 border-indigo-50 shadow-xl">
               <img src="https://i.pravatar.cc/150?u=premium" alt="CEO" />
             </div>
             <div className="font-black text-indigo-900 uppercase tracking-widest">Marcus Sterling</div>
@@ -151,6 +156,7 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Call to Action */}
       <section className="pb-32 px-6">
         <div className="max-w-7xl mx-auto bg-indigo-600 rounded-[4rem] p-20 lg:p-32 text-center text-white relative overflow-hidden">
           <div className="relative z-10">

@@ -5,7 +5,7 @@ import {
   Mail, Hash, ArrowRight, Loader2, ShieldCheck, 
   AlertCircle, Clock, Zap
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase.ts';
 
 const { useNavigate } = ReactRouterDOM;
 
@@ -125,7 +125,7 @@ const ClientLogin: React.FC = () => {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 text-white px-8 py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 disabled:opacity-50"
+              className="w-full bg-indigo-600 text-white px-8 py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 disabled:opacity-50 active:scale-95"
             >
               {loading ? (
                 <>Authenticating... <Loader2 className="animate-spin" /></>

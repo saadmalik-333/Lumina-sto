@@ -3,11 +3,10 @@ import React, { useState, useEffect } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { 
   Lock, Mail, Loader2, ShieldCheck, ArrowLeft, 
-  AlertCircle, Info, CheckCircle2, UserPlus, 
-  Settings, Save, Eye, EyeOff, ExternalLink, HelpCircle,
-  AlertTriangle
+  AlertCircle, CheckCircle2, UserPlus, 
+  Eye, EyeOff, ExternalLink, AlertTriangle
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext.tsx';
 
 const { useNavigate } = ReactRouterDOM;
 
@@ -76,7 +75,7 @@ const AdminLogin: React.FC = () => {
         <div className="text-center mb-8">
           <button 
             onClick={() => navigate('/')}
-            className="inline-flex items-center gap-2 text-gray-400 hover:text-indigo-600 mb-8 transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-2 text-gray-400 hover:text-indigo-600 mb-8 transition-colors text-sm font-medium active:scale-95"
           >
             <ArrowLeft size={16} /> Back to Studio
           </button>
@@ -155,7 +154,7 @@ const AdminLogin: React.FC = () => {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 text-white px-8 py-4 rounded-full font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-100 disabled:opacity-70"
+              className="w-full bg-indigo-600 text-white px-8 py-4 rounded-full font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-100 disabled:opacity-70 active:scale-95"
             >
               {loading ? (
                 <>Processing... <Loader2 className="animate-spin" /></>

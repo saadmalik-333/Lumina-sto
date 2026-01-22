@@ -1,162 +1,142 @@
-import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
 /**
  * PRODUCTION BACKEND API: /api/submit-form
- * Optimized for performance and reliability.
+ * Handles project inquiries with Supabase sync and Resend email notifications.
  */
 
-// Initialize Supabase with Service Role Key (Server-Side Only)
-// This bypasses RLS to ensure the record is written even if public inserts are restricted.
-const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+// Fire-and-forget email sender to avoid frontend blocking
+async function sendAdminNotification({ fullName, email, projectDetails, service, requestId }) {
+  try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const adminEmail = process.env.ADMIN_EMAIL || 'saad.real777@gmail.com';
+
+    if (!resendApiKey) {
+      console.error('RESEND_API_KEY not set in environment.');
+      return;
+    }
+
+    const payload = {
+      from: 'Lumina Studio <onboarding@resend.dev>',
+      to: [adminEmail],
+      subject: `New Request: ${fullName || 'Unknown Client'} (${requestId || 'N/A'})`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; color: #1e293b;">
+          <h2 style="color: #6366f1; margin-bottom: 20px;">Project Inquiry Received</h2>
+          <p><strong>Client:</strong> ${fullName || 'Unknown Client'}</p>
+          <p><strong>Email:</strong> ${email || 'Not Provided'}</p>
+          <p><strong>Service:</strong> ${service || 'Not Provided'}</p>
+          <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
+             <p><strong>Project Vision:</strong></p>
+             <p>${projectDetails || 'No details provided'}</p>
+          </div>
+          <p style="font-weight: bold; color: #6366f1;">
+             A new client has filled the form. Please review and approve from the admin panel.
+          </p>
+          <p style="font-size: 11px; color: #94a3b8; margin-top: 20px;">Ref ID: ${requestId || 'N/A'}</p>
+        </div>
+      `
+    };
+
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${resendApiKey}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Resend API Error:', errorData);
+    } else {
+      console.log('Admin email triggered successfully');
+    }
+  } catch (err) {
+    console.error('Error sending admin email:', err);
+  }
+}
 
 export async function POST(req) {
-  // 1. Wrap entire process in a global try-catch to guarantee a JSON response
   try {
     const body = await req.json();
-    
-    // 2. Destructure and Sanitize Inputs
-    const { 
-      fullName = 'Unknown Client', 
-      email = 'no-reply@example.com', 
-      projectDetails = 'No details provided', 
-      service = 'General Inquiry', 
-      budgetRange = 'Not Specified', 
-      deadline = 'Flexible', 
-      requestId 
-    } = body;
-
-    // 3. Backend Validation (Critical Security)
-    if (!body.fullName || !body.email || !body.projectDetails) {
-      return NextResponse.json(
-        { ok: false, message: "Validation Failed: Name, Email, and Project Details are required." }, 
-        { status: 400 }
-      );
-    }
-
-    // Ensure a unique Request ID exists
-    const finalRequestId = requestId || `LMN-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    console.log(`[API] Processing submission for ${finalRequestId} (${email})`);
-
-    // 4. Primary Task: Supabase Cloud Sync
-    // We await this to ensure data integrity before confirming success to the user
-    const { error: dbError } = await supabase
-      .from('requests')
-      .insert([{
-        request_id: finalRequestId,
-        full_name: fullName.trim(),
-        email: email.toLowerCase().trim(),
-        service,
-        project_details: projectDetails.trim(),
-        budget_range: budgetRange,
-        deadline,
-        status: 'Pending',
-        created_at: new Date().toISOString()
-      }]);
-
-    if (dbError) {
-      console.error("[Database Error]", dbError.message);
-      throw new Error("Failed to synchronize project with cloud storage.");
-    }
-
-    /**
-     * 5. Secondary Task: Fire-and-Forget Email Notification
-     * We do NOT 'await' this function. This ensures the response is returned to 
-     * the client instantly, avoiding the "Transmitting..." hang in the UI.
-     */
-    triggerEmailNotification({
+    const {
       fullName,
       email,
       projectDetails,
       service,
       budgetRange,
       deadline,
-      requestId: finalRequestId
-    }).catch(err => {
-      console.error("[Email Background Worker Error]", err.message);
-    });
+      requestId
+    } = body;
 
-    // 6. Return success response immediately
+    // 1. Backend Validation
+    if (!fullName || !email || !projectDetails) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Missing required fields: fullName, email, projectDetails.' 
+      }, { status: 400 });
+    }
+
+    // 2. Setup Supabase client with Service Role Key for elevated permissions
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Supabase environment variables missing');
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Server misconfigured: Supabase credentials missing.' 
+      }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 3. Insert project brief into Supabase
+    const { error: dbError } = await supabase.from('requests').insert([
+      {
+        request_id: requestId,
+        full_name: fullName.trim(),
+        email: email.toLowerCase().trim(),
+        service: service,
+        project_details: projectDetails.trim(),
+        budget_range: budgetRange,
+        deadline: deadline,
+        status: 'Pending',
+        created_at: new Date().toISOString()
+      }
+    ]);
+
+    if (dbError) {
+      console.error('Supabase insert error:', dbError.message);
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Database insertion failed.' 
+      }, { status: 500 });
+    }
+
+    // 4. Trigger Admin Notification (Fire-and-Forget)
+    // We don't await this to ensure the frontend receives a response immediately
+    sendAdminNotification({ fullName, email, projectDetails, service, requestId });
+
+    // 5. Success Response
     return NextResponse.json({ 
-      ok: true, 
-      message: "Studio uplink successful. Your brief has been queued for review.",
-      requestId: finalRequestId
+      success: true, 
+      message: 'Inquiry submitted successfully.', 
+      requestId 
     });
 
   } catch (err) {
-    console.error("[Global API Exception]", err.message);
+    console.error('Fatal API error:', err.message);
     return NextResponse.json({ 
-      ok: false, 
-      message: "Internal Server Error: Uplink interference detected.",
-      error: err.message 
+      success: false, 
+      error: 'Internal server error.' 
     }, { status: 500 });
   }
 }
 
-/**
- * Background worker for Resend Email API
- * Sends notification to the Studio Admin
- */
-async function triggerEmailNotification(data) {
-  const { RESEND_API_KEY, ADMIN_EMAIL } = process.env;
-
-  if (!RESEND_API_KEY || !ADMIN_EMAIL) {
-    console.warn("[Email Skip] Missing RESEND_API_KEY or ADMIN_EMAIL in environment variables.");
-    return;
-  }
-
-  const emailBody = {
-    from: 'Lumina Studio Notifications <onboarding@resend.dev>',
-    to: [ADMIN_EMAIL],
-    subject: `[New Inquiry] ${data.fullName} - ${data.requestId}`,
-    html: `
-      <div style="font-family: sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 600px; border: 1px solid #eee; border-radius: 12px; overflow: hidden;">
-        <div style="background-color: #6366f1; padding: 24px; color: #ffffff;">
-          <h2 style="margin: 0; font-size: 20px;">New Creative Brief Received</h2>
-          <p style="margin: 4px 0 0 0; opacity: 0.8; font-size: 14px;">ID: ${data.requestId}</p>
-        </div>
-        <div style="padding: 24px;">
-          <p><strong>Client:</strong> ${data.fullName}</p>
-          <p><strong>Email:</strong> <a href="mailto:${data.email}">${data.email}</a></p>
-          <p><strong>Service:</strong> ${data.service}</p>
-          <p><strong>Budget:</strong> ${data.budgetRange}</p>
-          <p><strong>Deadline:</strong> ${data.deadline}</p>
-          <div style="margin: 20px 0; padding: 16px; background-color: #f9fafb; border-left: 4px solid #6366f1; border-radius: 4px;">
-            <p style="margin: 0;"><strong>Details:</strong></p>
-            <p style="margin: 8px 0 0 0; white-space: pre-wrap;">${data.projectDetails}</p>
-          </div>
-          <p style="color: #4f46e5; font-weight: bold; margin-top: 24px; border-top: 1px solid #eee; pt-16px;">
-            A new client has filled the form. Please review and approve from the admin panel.
-          </p>
-        </div>
-      </div>
-    `
-  };
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${RESEND_API_KEY}`
-    },
-    body: JSON.stringify(emailBody)
-  });
-
-  const result = await response.json();
-  
-  if (!response.ok) {
-    console.error("[Resend Failure]", result);
-    throw new Error(`Resend API Error: ${result.message || 'Unknown error'}`);
-  }
-
-  console.log(`[Email Success] Notification sent for ${data.requestId}. Resend ID: ${result.id}`);
-}
-
-// Ensure direct GET requests are handled gracefully
 export async function GET() {
-  return NextResponse.json({ ok: false, message: "Method Not Allowed. Use POST." }, { status: 405 });
+  return NextResponse.json({ ok: false, message: "Method Not Allowed" }, { status: 405 });
 }

@@ -9,9 +9,10 @@ const { Link, useLocation } = ReactRouterDOM;
 /**
  * Custom hook to detect when an element enters the viewport with intersection observer
  */
-const useIntersectionObserver = (options = {}) => {
+// Added explicit type for options and return value to fix inference issue causing the ref error
+const useIntersectionObserver = (options: IntersectionObserverInit = {}): [React.RefObject<HTMLDivElement>, boolean] => {
   const [isIntersecting, setIsIntersecting] = useState(false);
-  const targetRef = useRef(null);
+  const targetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const observer = new IntersectionObserver(([entry]) => {

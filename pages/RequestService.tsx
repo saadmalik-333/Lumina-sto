@@ -1,10 +1,7 @@
-
 import React, { useState } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
-import { CheckCircle, ArrowRight, Loader2, Send, Sparkles } from 'lucide-react';
+import { CheckCircle, ArrowRight, Loader2, Send, Sparkles, AlertCircle } from 'lucide-react';
 import { SERVICES } from '../constants.tsx';
-import { supabase } from '../lib/supabase.ts';
-import { ServiceRequest } from '../types.ts';
 import { GoogleGenAI } from "@google/genai";
 
 const { useParams, useNavigate } = ReactRouterDOM;
@@ -15,6 +12,7 @@ const RequestService: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [refining, setRefining] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [requestId, setRequestId] = useState('');
 
   const [formData, setFormData] = useState({
@@ -28,6 +26,7 @@ const RequestService: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    if (errorMsg) setErrorMsg(''); 
   };
 
   const generateRequestId = () => {
@@ -58,33 +57,65 @@ const RequestService: React.FC = () => {
     }
   };
 
+  /**
+   * DEFENSIVE SUBMISSION HANDLER
+   * Uses AbortController to prevent indefinite 'Transmitting...' state.
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setErrorMsg('');
 
     const newRequestId = generateRequestId();
-    try {
-      const { error } = await supabase.from('requests').insert([
-        {
-          request_id: newRequestId,
-          full_name: formData.fullName.trim(),
-          email: formData.email.trim().toLowerCase(),
-          service: formData.service,
-          project_details: formData.projectDetails.trim(),
-          budget_range: formData.budgetRange,
-          deadline: formData.deadline,
-          status: 'Pending'
-        } as ServiceRequest
-      ]);
+    
+    // Create an AbortController to enforce a client-side timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 second limit
 
-      if (error) throw error;
+    try {
+      const response = await fetch('/api/submit-form', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...formData,
+          requestId: newRequestId
+        }),
+        signal: controller.signal
+      });
+
+      // Clear timeout as request completed (win or lose)
+      clearTimeout(timeoutId);
+
+      // Validate Content-Type before parsing JSON
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("The studio server returned a malformed response. Please try again.");
+      }
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Server returned error status ${response.status}`);
+      }
+
+      // Success Path
       setRequestId(newRequestId);
       setSuccess(true);
-      window.scrollTo(0, 0);
-    } catch (err) {
-      console.error('Error:', err);
-      alert('Failed to submit. Please try again.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.error('Transmission Failure:', err);
+
+      if (err.name === 'AbortError') {
+        setErrorMsg('The connection timed out. Our servers are busy, please try again in a moment.');
+      } else {
+        setErrorMsg(err.message || 'We encountered a digital interference. Please check your connection and try again.');
+      }
     } finally {
+      // CRITICAL: This block ALWAYS runs, ensuring 'Transmitting...' state is cleared.
       setLoading(false);
     }
   };
@@ -97,14 +128,14 @@ const RequestService: React.FC = () => {
             <CheckCircle size={32} />
           </div>
           <h2 className="text-2xl lg:text-3xl font-serif font-bold text-indigo-900 mb-4">Request Sent!</h2>
-          <p className="text-gray-500 mb-8 text-sm lg:text-base">We will review your project and contact you shortly.</p>
+          <p className="text-gray-500 mb-8 text-sm lg:text-base">Our team has been notified. We will review your project and contact you shortly.</p>
           <div className="bg-indigo-50 p-6 rounded-2xl mb-10 border border-indigo-100">
             <div className="text-[10px] uppercase font-black text-indigo-400 mb-1 tracking-widest">Project Workspace ID</div>
             <div className="text-2xl font-bold text-indigo-900 tracking-tight">{requestId}</div>
           </div>
           <button 
             onClick={() => navigate('/')} 
-            className="w-full bg-indigo-600 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:bg-indigo-700 transition-all text-sm uppercase tracking-widest"
+            className="w-full bg-indigo-600 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:bg-indigo-700 transition-all text-sm uppercase tracking-widest active:scale-95"
           >
             Back to Home
           </button>
@@ -122,6 +153,13 @@ const RequestService: React.FC = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-[2rem] lg:rounded-[2.5rem] p-8 lg:p-12 shadow-xl border border-gray-100">
+          {errorMsg && (
+            <div className="mb-8 p-4 bg-red-50 border border-red-100 text-red-600 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+              <AlertCircle size={20} className="shrink-0" />
+              <p className="text-sm font-bold tracking-tight">{errorMsg}</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 mb-8">
             <div>
               <label className="block text-[10px] font-black text-indigo-900 mb-2 uppercase tracking-widest">Full Name</label>
@@ -129,10 +167,11 @@ const RequestService: React.FC = () => {
                 required 
                 type="text" 
                 name="fullName" 
+                disabled={loading}
                 value={formData.fullName} 
                 onChange={handleChange} 
                 placeholder="John Doe" 
-                className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 transition-all text-gray-800 text-sm font-medium" 
+                className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 transition-all text-gray-800 text-sm font-medium outline-none disabled:opacity-50" 
               />
             </div>
             <div>
@@ -141,10 +180,11 @@ const RequestService: React.FC = () => {
                 required 
                 type="email" 
                 name="email" 
+                disabled={loading}
                 value={formData.email} 
                 onChange={handleChange} 
                 placeholder="john@example.com" 
-                className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 transition-all text-gray-800 text-sm font-medium" 
+                className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 transition-all text-gray-800 text-sm font-medium outline-none disabled:opacity-50" 
               />
             </div>
           </div>
@@ -154,9 +194,10 @@ const RequestService: React.FC = () => {
             <div className="relative">
               <select 
                 name="service" 
+                disabled={loading}
                 value={formData.service} 
                 onChange={handleChange} 
-                className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 text-gray-800 appearance-none text-sm font-medium"
+                className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 text-gray-800 appearance-none text-sm font-medium outline-none cursor-pointer disabled:opacity-50"
               >
                 {SERVICES.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
               </select>
@@ -172,8 +213,8 @@ const RequestService: React.FC = () => {
               <button 
                 type="button" 
                 onClick={refineWithAI} 
-                disabled={refining || !formData.projectDetails.trim()} 
-                className="text-[10px] font-black text-indigo-600 flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-xl transition-all disabled:opacity-50 disabled:grayscale uppercase tracking-widest"
+                disabled={refining || !formData.projectDetails.trim() || loading} 
+                className={`text-[10px] font-black text-indigo-600 flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-xl transition-all disabled:opacity-50 disabled:grayscale uppercase tracking-widest ${refining ? 'animate-pulse' : ''}`}
               >
                 {refining ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Refine with AI
               </button>
@@ -182,10 +223,11 @@ const RequestService: React.FC = () => {
               required 
               rows={5} 
               name="projectDetails" 
+              disabled={loading}
               value={formData.projectDetails} 
               onChange={handleChange} 
               placeholder="Goals, target audience, and your creative vision..." 
-              className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-4 lg:px-6 lg:py-5 focus:ring-2 focus:ring-indigo-500 transition-all text-gray-800 text-sm font-medium resize-none leading-relaxed" 
+              className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-4 lg:px-6 lg:py-5 focus:ring-2 focus:ring-indigo-500 transition-all text-gray-800 text-sm font-medium resize-none leading-relaxed outline-none disabled:opacity-50" 
             />
           </div>
 
@@ -195,9 +237,10 @@ const RequestService: React.FC = () => {
               <div className="relative">
                 <select 
                   name="budgetRange" 
+                  disabled={loading}
                   value={formData.budgetRange} 
                   onChange={handleChange} 
-                  className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 text-gray-800 appearance-none text-sm font-medium"
+                  className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 text-gray-800 appearance-none text-sm font-medium outline-none cursor-pointer disabled:opacity-50"
                 >
                   <option value="$50">$50 - Basic Asset</option>
                   <option value="$100">$100 - Standard Setup</option>
@@ -214,9 +257,10 @@ const RequestService: React.FC = () => {
               <div className="relative">
                 <select 
                   name="deadline" 
+                  disabled={loading}
                   value={formData.deadline} 
                   onChange={handleChange} 
-                  className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 text-gray-800 appearance-none text-sm font-medium"
+                  className="w-full bg-gray-50 border-none rounded-xl lg:rounded-2xl px-5 py-3 lg:px-6 lg:py-4 focus:ring-2 focus:ring-indigo-500 text-gray-800 appearance-none text-sm font-medium outline-none cursor-pointer disabled:opacity-50"
                 >
                   <option value="2 months">2 Months</option>
                   <option value="4 months">4 Months</option>

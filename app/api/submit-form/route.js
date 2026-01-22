@@ -2,18 +2,15 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 /**
- * PRODUCTION BACKEND API: /app/api/submit-form
- * Optimized for debugging and reliability.
- * Runtime: Node.js (Vercel Serverless)
+ * DEBUGGING BACKEND API: /app/api/submit-form
+ * Optimized for tracing issues in Vercel/Supabase/Resend.
  */
 
 export async function POST(req) {
-  console.log("--- [START] Form Submission Triggered ---");
-  
   try {
-    // 1. Parse Request Body
+    // 1. Log incoming request
     const body = await req.json();
-    console.log("Form data received:", body);
+    console.log("Form received:", body);
 
     // 2. Destructure with Fallbacks & Sanitization
     const {
@@ -21,41 +18,36 @@ export async function POST(req) {
       email = 'not-provided@example.com',
       projectDetails = 'No project details provided',
       service = 'General Inquiry',
-      budgetRange = 'TBD',
-      deadline = 'Flexible',
+      budgetRange = 'Not Specified',
+      deadline = 'Not Specified',
       requestId = `LMN-${Math.floor(1000 + Math.random() * 9000)}`
     } = body;
 
     // 3. Mandatory Field Validation
     if (!body.fullName || !body.email || !body.projectDetails) {
-      console.warn("[Validation] Missing required fields.");
+      console.warn("Validation failed: Missing core fields (fullName, email, or projectDetails)");
       return NextResponse.json({ 
         success: false, 
-        error: 'Required fields missing: Name, Email, and Project Details are mandatory.' 
+        error: 'Missing required fields: fullName, email, projectDetails.' 
       }, { status: 400 });
     }
 
-    // 4. Environment Configuration Check (Server-Side Logs)
+    // 4. Configuration Check
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const resendKey = process.env.RESEND_API_KEY;
     const adminEmail = process.env.ADMIN_EMAIL;
 
-    console.log("Configuration Check:", {
-      supabaseConfigured: !!(supabaseUrl && supabaseKey),
-      resendConfigured: !!resendKey,
-      adminEmailSet: !!adminEmail
-    });
+    console.log("Supabase URL & key presence:", !!supabaseUrl, !!supabaseKey);
+    console.log("Resend Key & Admin Email presence:", !!resendKey, !!adminEmail);
 
     if (!supabaseUrl || !supabaseKey) {
-      console.error("[Config] Supabase environment variables are missing.");
-      return NextResponse.json({ success: false, error: 'Database configuration error.' }, { status: 500 });
+      console.error("CRITICAL: Supabase environment variables are missing.");
+      return NextResponse.json({ success: false, error: 'Database configuration missing.' }, { status: 500 });
     }
 
     // 5. Database Insertion (Supabase)
     const supabase = createClient(supabaseUrl, supabaseKey);
-    console.log(`[Database] Attempting insert for request: ${requestId}`);
-
     const { error: dbError } = await supabase.from('requests').insert([
       {
         request_id: requestId,
@@ -71,47 +63,41 @@ export async function POST(req) {
     ]);
 
     if (dbError) {
-      console.error("[Database Error] Insertion failed:", dbError.message);
-      // We still try to send the email even if DB fails for visibility
+      console.error("Supabase insert error:", dbError.message);
+      // We continue to email attempt even if DB fails to ensure admin visibility of the failure
     } else {
-      console.log("[Database] Record created successfully.");
+      console.log("Supabase insert successful.");
     }
 
-    // 6. Email Notification via Resend (Awaited for debugging)
-    let emailStatus = "not_sent";
+    // 6. Email Notification via Resend (Synchronous for logs)
     if (resendKey && adminEmail) {
       const emailPayload = {
-        from: 'Lumina Studio <onboarding@resend.dev>',
-        to: [adminEmail],
-        subject: `NEW INQUIRY: ${fullName} (${requestId})`,
+        from: 'onboarding@resend.dev',
+        to: adminEmail,
+        subject: `New Request: ${fullName} (${requestId})`,
         html: `
-          <div style="font-family: sans-serif; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; color: #1e293b; max-width: 600px;">
-            <h2 style="color: #6366f1; margin-top: 0;">New Project Received</h2>
+          <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
+            <h2 style="color: #4f46e5;">New Creative Inquiry Received</h2>
             <p><strong>Client:</strong> ${fullName}</p>
-            <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
-            <p><strong>Service Type:</strong> ${service}</p>
-            <p><strong>Budget Range:</strong> ${budgetRange}</p>
-            <p><strong>Target Deadline:</strong> ${deadline}</p>
-            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin: 24px 0; border-left: 4px solid #6366f1;">
-               <p style="margin-top: 0; font-weight: bold; color: #6366f1;">The Vision:</p>
-               <p style="margin-bottom: 0;">${projectDetails}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Service:</strong> ${service}</p>
+            <p><strong>ID:</strong> ${requestId}</p>
+            <hr />
+            <p><strong>Project Vision:</strong></p>
+            <div style="background: #f9fafb; padding: 15px; border-radius: 8px;">
+              ${projectDetails}
             </div>
-            <p style="font-weight: bold; color: #4f46e5;">
-               A new client has filled the form. Please review and approve from the admin panel.
+            <p style="margin-top: 20px; font-weight: bold; color: #4f46e5;">
+              A new client has filled the form. Please review and approve from the admin panel.
             </p>
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-            <p style="font-size: 11px; color: #94a3b8;">System Reference ID: ${requestId}</p>
           </div>
         `
       };
 
-      console.log("[Email] Dispatching payload to Resend:", {
-        to: adminEmail,
-        subject: emailPayload.subject
-      });
+      console.log("Sending email payload:", emailPayload);
 
       try {
-        const response = await fetch('https://api.resend.com/emails', {
+        const emailResponse = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -120,50 +106,45 @@ export async function POST(req) {
           body: JSON.stringify(emailPayload)
         });
 
-        const result = await response.json();
-        console.log("Resend API response status:", response.status);
-        console.log("Resend API response body:", result);
-
-        if (response.ok) {
-          emailStatus = "success";
+        console.log("Resend API response ok?", emailResponse.ok);
+        if (!emailResponse.ok) {
+          const errData = await emailResponse.json();
+          console.error("Resend API error details:", errData);
         } else {
-          emailStatus = `failed_${response.status}`;
-          console.error("[Resend Error]", result);
+          const successData = await emailResponse.json();
+          console.log("Resend successfully delivered email. ID:", successData.id);
         }
-      } catch (err) {
-        emailStatus = "error";
-        console.error("[Email Exception]", err.message);
+      } catch (emailErr) {
+        console.error("Fatal exception in email fetch logic:", emailErr.message);
       }
     } else {
-      console.warn("[Email Skip] Skipping email trigger due to missing credentials.");
+      console.warn("Skipping email: Resend API Key or Admin Email not found in process.env");
     }
 
-    // 7. Unified JSON Response
-    console.log("--- [END] Process Completed ---");
+    // 7. Success Response
     return NextResponse.json({ 
       success: true, 
-      message: 'Inquiry successfully processed by the studio.',
+      message: 'Inquiry transmitted to studio cloud.', 
       requestId,
-      debug: {
-        db: dbError ? 'failed' : 'ok',
-        email: emailStatus
-      }
+      dbSynced: !dbError
     });
 
   } catch (err) {
-    console.error("[Fatal Error] Global Exception:", err.message);
+    console.error("Global API Exception:", err.message);
     return NextResponse.json({ 
       success: false, 
-      error: 'Uplink failure. Please try again or contact support directly.',
-      message: err.message
+      error: 'Internal processing error.',
+      debug: err.message
     }, { status: 500 });
   }
 }
 
-// Block GET requests
+/**
+ * Handle GET requests (Method Not Allowed)
+ */
 export async function GET() {
   return NextResponse.json({ 
     success: false, 
-    error: 'Method Not Allowed. This endpoint only accepts project transmissions via POST.' 
+    error: 'Method Not Allowed. This endpoint only accepts project brief POST requests.' 
   }, { status: 405 });
 }

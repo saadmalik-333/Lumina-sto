@@ -4,6 +4,7 @@ import * as ReactRouterDOM from 'react-router-dom';
 import { CheckCircle, ArrowRight, Loader2, Send, Sparkles, AlertCircle } from 'lucide-react';
 import { SERVICES } from '../constants.tsx';
 import { GoogleGenAI } from "@google/genai";
+import { supabase } from '../lib/supabase.ts'; // Direct import of the configured client
 
 const { useParams, useNavigate } = ReactRouterDOM;
 
@@ -58,40 +59,35 @@ const RequestService: React.FC = () => {
     }
   };
 
+  /**
+   * ROBUST FRONTEND SUBMISSION
+   * Directly interacts with Supabase to bypass routing/API configuration issues.
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
 
     const newRequestId = generateRequestId();
-    
-    // DEFENSIVE STRATEGY: 12-second hard timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     try {
-      const response = await fetch('/api/submit-form', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, requestId: newRequestId }),
-        signal: controller.signal
-      });
+      // 1. Perform direct insertion into the Supabase 'requests' table
+      const { error: sbError } = await supabase
+        .from('requests')
+        .insert([{
+          request_id: newRequestId,
+          full_name: formData.fullName,
+          email: formData.email.toLowerCase().trim(),
+          service: formData.service,
+          project_details: formData.projectDetails,
+          budget_range: formData.budgetRange,
+          deadline: formData.deadline,
+          status: 'Pending',
+          created_at: new Date().toISOString()
+        }]);
 
-      clearTimeout(timeoutId);
-
-      // 1. Check if the response is actually JSON (important due to potential vercel rewrites)
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        // Log the actual response for debugging
-        const text = await response.text();
-        console.error('Expected JSON but received:', text.substring(0, 100));
-        throw new Error("The server sent an invalid response format (HTML instead of JSON). Check your API routing.");
-      }
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || `Server responded with status ${response.status}`);
+      if (sbError) {
+        throw new Error(sbError.message);
       }
 
       // 2. Success Path
@@ -100,16 +96,9 @@ const RequestService: React.FC = () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      clearTimeout(timeoutId);
       console.error('Submission Error:', err);
-
-      if (err.name === 'AbortError') {
-        setErrorMsg('Connection Timed Out: The server is taking too long. Please try again.');
-      } else {
-        setErrorMsg(err.message || 'Transmission Interference: Failed to reach the studio servers.');
-      }
+      setErrorMsg(err.message || 'The studio uplink failed. Please check your connection and try again.');
     } finally {
-      // 3. GUARANTEE: Reset loading state regardless of outcome
       setLoading(false);
     }
   };
@@ -150,7 +139,10 @@ const RequestService: React.FC = () => {
           {errorMsg && (
             <div className="mb-8 p-4 bg-red-50 border border-red-100 text-red-600 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
               <AlertCircle size={20} className="shrink-0" />
-              <p className="text-sm font-bold tracking-tight">{errorMsg}</p>
+              <div className="text-sm font-bold tracking-tight">
+                <p>Uplink Error</p>
+                <p className="font-medium opacity-80">{errorMsg}</p>
+              </div>
             </div>
           )}
 

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { CheckCircle, ArrowRight, Loader2, Send, Sparkles, AlertCircle } from 'lucide-react';
@@ -57,10 +58,6 @@ const RequestService: React.FC = () => {
     }
   };
 
-  /**
-   * DEFENSIVE SUBMISSION HANDLER
-   * Uses AbortController to prevent indefinite 'Transmitting...' state.
-   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -68,54 +65,51 @@ const RequestService: React.FC = () => {
 
     const newRequestId = generateRequestId();
     
-    // Create an AbortController to enforce a client-side timeout
+    // DEFENSIVE STRATEGY: 12-second hard timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 second limit
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     try {
       const response = await fetch('/api/submit-form', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...formData,
-          requestId: newRequestId
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, requestId: newRequestId }),
         signal: controller.signal
       });
 
-      // Clear timeout as request completed (win or lose)
       clearTimeout(timeoutId);
 
-      // Validate Content-Type before parsing JSON
+      // 1. Check if the response is actually JSON (important due to potential vercel rewrites)
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("The studio server returned a malformed response. Please try again.");
+        // Log the actual response for debugging
+        const text = await response.text();
+        console.error('Expected JSON but received:', text.substring(0, 100));
+        throw new Error("The server sent an invalid response format (HTML instead of JSON). Check your API routing.");
       }
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || `Server returned error status ${response.status}`);
+        throw new Error(result.error || `Server responded with status ${response.status}`);
       }
 
-      // Success Path
+      // 2. Success Path
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
       clearTimeout(timeoutId);
-      console.error('Transmission Failure:', err);
+      console.error('Submission Error:', err);
 
       if (err.name === 'AbortError') {
-        setErrorMsg('The connection timed out. Our servers are busy, please try again in a moment.');
+        setErrorMsg('Connection Timed Out: The server is taking too long. Please try again.');
       } else {
-        setErrorMsg(err.message || 'We encountered a digital interference. Please check your connection and try again.');
+        setErrorMsg(err.message || 'Transmission Interference: Failed to reach the studio servers.');
       }
     } finally {
-      // CRITICAL: This block ALWAYS runs, ensuring 'Transmitting...' state is cleared.
+      // 3. GUARANTEE: Reset loading state regardless of outcome
       setLoading(false);
     }
   };

@@ -65,37 +65,37 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // Explicitly targeting the required App Router endpoint
+      // Pointing exactly to the requested App Router API route
       const response = await fetch('/app/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
-      // Handle raw non-JSON errors from the server (like 404 or 500 HTML pages)
+      // Safely capture response body
       const text = await response.text();
       let result;
       try {
         result = JSON.parse(text);
       } catch (parseErr) {
-        console.error('Non-JSON response received:', text);
-        throw new Error(`The studio server returned an invalid response (Status ${response.status}).`);
+        console.error('Non-JSON response from server:', text);
+        throw new Error(`The studio server returned an invalid response (Error ${response.status}).`);
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || `The transmission failed (Status ${response.status}).`);
+        throw new Error(result.error || `Uplink failure (Status ${response.status}).`);
       }
 
-      // Handle successful submission
+      // Success Logic
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      console.error('Submission Error:', err);
-      setErrorMsg(err.message || 'The studio uplink failed. Please check your network connectivity.');
+      console.error('Submission Critical Error:', err);
+      setErrorMsg(err.message || 'The studio uplink failed. Please check your network connection.');
     } finally {
-      // CRITICAL: Always clear the loading state to stop "Transmitting..." from hanging
+      // CRITICAL: Always clear the loading state to stop "Transmitting..." hang
       setLoading(false);
     }
   };

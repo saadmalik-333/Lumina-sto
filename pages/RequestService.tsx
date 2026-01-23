@@ -65,37 +65,37 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // Point directly to the Next.js App Router API route
-      const response = await fetch('/api/submit-form', {
+      // Explicitly targeting the App Router route to bypass legacy 410 handlers
+      const response = await fetch('/app/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
-      // Attempt to parse JSON response
+      // Safely parse JSON
       const text = await response.text();
       let result;
       try {
         result = JSON.parse(text);
       } catch (parseErr) {
-        console.error('Invalid JSON response:', text);
-        throw new Error(`The studio server returned an unexpected response (Error ${response.status}).`);
+        console.error('Non-JSON response received:', text);
+        throw new Error(`The studio server returned an invalid response (Error ${response.status}).`);
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || `Uplink failure (Status ${response.status}).`);
+        throw new Error(result.error || `Uplink synchronization failed (Status ${response.status}).`);
       }
 
-      // Success Path
+      // Handle successful submission
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      console.error('Submission Error:', err);
-      setErrorMsg(err.message || 'The studio uplink failed. Please check your network connection.');
+      console.error('Submission Critical Failure:', err);
+      setErrorMsg(err.message || 'The studio uplink encountered a terminal error. Please check your connectivity.');
     } finally {
-      // CRITICAL: Always clear the loading state to stop "Transmitting..." hang
+      // CRITICAL: Guaranteed cleanup of "Transmitting..." state
       setLoading(false);
     }
   };

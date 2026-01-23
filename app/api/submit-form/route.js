@@ -2,50 +2,49 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
-// Force Node.js runtime for Nodemailer/SMTP compatibility
+// Force Node.js runtime to ensure Nodemailer/SMTP works correctly in serverless
 export const runtime = 'nodejs';
 
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
  * 
- * Flow:
- * 1. Receive and log submission payload.
- * 2. Validate mandatory fields.
- * 3. Persist to Supabase (using SERVICE ROLE for administrative priority).
- * 4. Dispatch Admin Notification via Gmail SMTP (Nodemailer).
- * 5. Return standard JSON success/error packet.
+ * Process Flow:
+ * 1. Validate JSON Payload
+ * 2. Persist Project Data to Supabase (using Service Role Key)
+ * 3. Dispatch Notification via Gmail SMTP
+ * 4. Return Unified JSON Response
  */
+
 export async function POST(req) {
   const tId = `TX-${Math.random().toString(36).substring(7).toUpperCase()}`;
   const now = new Date().toISOString();
   
-  console.log(`[${now}] [${tId}] --- INBOUND PROJECT SUBMISSION ---`);
+  console.log(`[${now}] [${tId}] --- INCOMING FORM SUBMISSION ---`);
 
   try {
-    // 1. Payload Acquisition
+    // 1. Parse Payload
     const body = await req.json();
     const { fullName, email, projectDetails, service, budgetRange, deadline, requestId } = body;
 
-    console.log(`[${tId}] Metadata: Client=${email}, ID=${requestId}, Service=${service}`);
+    console.log(`[${tId}] Validating data for Request ID: ${requestId}`);
 
-    // 2. Strict Data Validation
+    // 2. Data Validation
     if (!fullName || !email || !projectDetails || !requestId) {
-      console.error(`[${tId}] Validation Error: Client sent incomplete project profile.`);
+      console.error(`[${tId}] Validation Error: Required fields missing in payload.`);
       return NextResponse.json({ 
         success: false, 
-        error: "All mandatory project fields must be populated." 
+        error: "Mandatory project details are missing." 
       }, { status: 400 });
     }
 
-    // 3. Supabase Cloud Persistence
-    console.log(`[${tId}] Cloud DB: Initializing connection...`);
-    
+    // 3. Supabase Integration (Using Service Role Key to ensure persistence)
+    console.log(`[${tId}] Cloud DB: Synchronizing record...`);
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      console.error(`[${tId}] Configuration Error: Supabase credentials missing from environment.`);
-      throw new Error("System configuration error: Database uplink unavailable.");
+      console.error(`[${tId}] Configuration Error: Supabase credentials missing from ENV.`);
+      throw new Error("Database uplink configuration is missing.");
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -65,18 +64,18 @@ export async function POST(req) {
     ]);
 
     if (dbError) {
-      console.error(`[${tId}] Cloud DB Failure: ${dbError.message}`);
-      throw new Error(`Cloud database failed to accept record: ${dbError.message}`);
+      console.error(`[${tId}] Cloud DB Sync Error: ${dbError.message}`);
+      throw new Error(`Database synchronization failed: ${dbError.message}`);
     }
-    console.log(`[${tId}] Cloud DB: Success. Record ${requestId} secured.`);
+    console.log(`[${tId}] Cloud DB Sync: Success.`);
 
-    // 4. Studio Notification (Nodemailer SMTP)
+    // 4. Admin Notification via Nodemailer (Gmail SMTP)
     const gmailUser = process.env.GMAIL_USER;
     const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
     const adminEmail = process.env.ADMIN_EMAIL;
 
     if (gmailUser && gmailPass && adminEmail) {
-      console.log(`[${tId}] SMTP: Preparing dispatch via ${gmailUser}...`);
+      console.log(`[${tId}] SMTP: Initializing relay via ${gmailUser}...`);
       
       const transporter = nodemailer.createTransport({
         host: 'smtp.gmail.com',
@@ -88,39 +87,41 @@ export async function POST(req) {
       const mailOptions = {
         from: `"Lumina Creative Studio" <${gmailUser}>`,
         to: adminEmail,
-        subject: `[NEW BRIEF] ${fullName} - Project ${requestId}`,
+        subject: `[NEW BRIEF] ${fullName} - ${requestId}`,
         html: `
-          <div style="font-family: sans-serif; max-width: 600px; padding: 40px; border: 1px solid #f1f5f9; border-radius: 32px; color: #1e293b; line-height: 1.6;">
-            <div style="margin-bottom: 30px; text-align: center;">
-              <span style="font-size: 24px; font-weight: 900; color: #4f46e5; letter-spacing: -1px;">LUMINA STUDIO</span>
+          <div style="font-family: sans-serif; max-width: 600px; padding: 40px; border: 1px solid #f1f5f9; border-radius: 24px; color: #1e293b;">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h1 style="color: #4f46e5; margin: 0; font-size: 24px;">LUMINA STUDIO</h1>
+              <p style="color: #64748b; font-size: 14px; margin-top: 5px;">New Project Opportunity</p>
             </div>
-            <h2 style="color: #0f172a; margin-bottom: 24px; font-size: 20px;">New Project Opportunity</h2>
-            <div style="background: #f8fafc; padding: 25px; border-radius: 20px; margin-bottom: 30px; border: 1px solid #e2e8f0;">
+            <div style="background: #f8fafc; padding: 25px; border-radius: 16px; margin-bottom: 30px; border: 1px solid #e2e8f0;">
               <p style="margin: 0 0 10px;"><strong>Workspace ID:</strong> ${requestId}</p>
               <p style="margin: 0 0 10px;"><strong>Client:</strong> ${fullName}</p>
               <p style="margin: 0 0 10px;"><strong>Email:</strong> ${email}</p>
-              <p style="margin: 0 0 10px;"><strong>Service Domain:</strong> ${service.replace('-', ' ')}</p>
+              <p style="margin: 0 0 10px;"><strong>Service Domain:</strong> ${service}</p>
               <p style="margin: 0;"><strong>Budget Scope:</strong> ${budgetRange}</p>
             </div>
-            <p style="font-weight: 700; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">The Creative Brief</p>
-            <div style="font-size: 15px; color: #475569; white-space: pre-wrap; font-style: italic;">"${projectDetails}"</div>
+            <p style="font-weight: 700; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Creative Brief</p>
+            <div style="font-size: 15px; color: #475569; white-space: pre-wrap; font-style: italic; background: #fff; padding: 20px; border: 1px dashed #cbd5e1; border-radius: 12px;">"${projectDetails}"</div>
             <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 40px 0;" />
-            <p style="font-size: 11px; color: #94a3b8; text-align: center;">This is an automated system notification for the Lumina Administrative Portal.</p>
+            <p style="font-size: 11px; color: #94a3b8; text-align: center;">Automated notification from Lumina Admin Suite</p>
           </div>
         `,
       };
 
       try {
+        // Await dispatch to ensure serverless function doesn't terminate early
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[${tId}] SMTP: Notification delivered successfully (ID: ${info.messageId}).`);
+        console.log(`[${tId}] SMTP: Success. Notification delivered (ID: ${info.messageId}).`);
       } catch (emailErr) {
-        console.warn(`[${tId}] SMTP Warning: Notification relay failed. Project is secured in DB but admin may need to check dashboard. Error: ${emailErr.message}`);
+        console.warn(`[${tId}] SMTP Warning: Notification relay failed, but project is secured in DB. Error: ${emailErr.message}`);
+        // We do not fail the whole request if only the email notification lags
       }
     } else {
-      console.warn(`[${tId}] SMTP Skip: Notification service not configured in environment variables.`);
+      console.warn(`[${tId}] SMTP: Skipped. Check environment variables.`);
     }
 
-    console.log(`[${tId}] --- SUBMISSION LIFECYCLE COMPLETED (SUCCESS) ---`);
+    console.log(`[${tId}] --- SUBMISSION COMPLETED SUCCESSFULLY ---`);
     return NextResponse.json({ 
       success: true, 
       message: "Form submitted successfully",
@@ -128,16 +129,16 @@ export async function POST(req) {
     }, { status: 200 });
 
   } catch (err) {
-    console.error(`[${tId}] CRITICAL SYSTEM EXCEPTION:`, err.message);
+    console.error(`[${tId}] CRITICAL SYSTEM FAILURE:`, err.message);
     return NextResponse.json({ 
       success: false, 
-      error: err.message || "The studio uplink synchronization failed." 
+      error: err.message || "An unexpected error occurred during the uplink sync." 
     }, { status: 500 });
   }
 }
 
 /**
- * Handle CORS Preflight for external integrations
+ * Handle CORS Preflight
  */
 export async function OPTIONS() {
   return new Response(null, {
@@ -153,6 +154,6 @@ export async function OPTIONS() {
 /**
  * REST Method Safeguards
  */
-export async function GET() { return NextResponse.json({ success: false, error: "REST method prohibited for this endpoint." }, { status: 405 }); }
-export async function PUT() { return NextResponse.json({ success: false, error: "REST method prohibited for this endpoint." }, { status: 405 }); }
-export async function DELETE() { return NextResponse.json({ success: false, error: "REST method prohibited for this endpoint." }, { status: 405 }); }
+export async function GET() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
+export async function PUT() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
+export async function DELETE() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }

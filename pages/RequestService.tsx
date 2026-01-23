@@ -65,25 +65,25 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // Explicitly targeting the App Router route to bypass legacy 410 handlers
+      // Explicitly targeting the required App Router endpoint
       const response = await fetch('/app/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
-      // Safely parse JSON
+      // Handle raw non-JSON errors from the server (like 404 or 500 HTML pages)
       const text = await response.text();
       let result;
       try {
         result = JSON.parse(text);
       } catch (parseErr) {
         console.error('Non-JSON response received:', text);
-        throw new Error(`The studio server returned an invalid response (Error ${response.status}).`);
+        throw new Error(`The studio server returned an invalid response (Status ${response.status}).`);
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || `Uplink synchronization failed (Status ${response.status}).`);
+        throw new Error(result.error || `The transmission failed (Status ${response.status}).`);
       }
 
       // Handle successful submission
@@ -92,10 +92,10 @@ const RequestService: React.FC = () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      console.error('Submission Critical Failure:', err);
-      setErrorMsg(err.message || 'The studio uplink encountered a terminal error. Please check your connectivity.');
+      console.error('Submission Error:', err);
+      setErrorMsg(err.message || 'The studio uplink failed. Please check your network connectivity.');
     } finally {
-      // CRITICAL: Guaranteed cleanup of "Transmitting..." state
+      // CRITICAL: Always clear the loading state to stop "Transmitting..." from hanging
       setLoading(false);
     }
   };

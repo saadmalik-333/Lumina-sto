@@ -63,42 +63,39 @@ const RequestService: React.FC = () => {
     setErrorMsg('');
 
     const newRequestId = generateRequestId();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s Hard Timeout
 
     try {
-      const response = await fetch('/api/submit-form', {
+      // Pointing directly to the absolute app route to avoid "relocated" errors from legacy /api folders
+      const response = await fetch('/app/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, requestId: newRequestId }),
-        signal: controller.signal
+        body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
-      clearTimeout(timeoutId);
-
-      const result = await response.json().catch(() => ({ 
-        success: false, 
-        error: "Server returned a non-JSON response. Contact support." 
-      }));
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || `Uplink failed (Status: ${response.status})`);
+      // Handle raw non-JSON errors gracefully
+      let result;
+      const textResponse = await response.text();
+      try {
+        result = JSON.parse(textResponse);
+      } catch (parseErr) {
+        throw new Error(`Server Communication Error (${response.status})`);
       }
 
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || `Uplink failed with status ${response.status}`);
+      }
+
+      // Success Path
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      console.error('Form Error:', err);
-      if (err.name === 'AbortError') {
-        setErrorMsg('The connection timed out. Please try again.');
-      } else {
-        setErrorMsg(err.message || 'The studio uplink failed. Please check your connectivity.');
-      }
+      console.error('Submission Error:', err);
+      setErrorMsg(err.message || 'The studio uplink failed. Please check your connection.');
     } finally {
+      // CRITICAL: Always clear the transmitting state
       setLoading(false);
-      clearTimeout(timeoutId);
     }
   };
 

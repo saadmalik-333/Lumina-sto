@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { 
@@ -6,7 +5,8 @@ import {
   Check, X as CloseIcon, Trash2, 
   Download, FilterX, Loader2, CheckCircle,
   MessageSquare, AlertCircle, CheckCircle2,
-  LogOut, ShieldCheck, User, ChevronRight
+  LogOut, ShieldCheck, User, ChevronRight,
+  Clock, Calendar
 } from 'lucide-react';
 import { supabase } from '../lib/supabase.ts';
 import { ServiceRequest, ServiceStatus } from '../types.ts';
@@ -32,7 +32,7 @@ const AdminDashboard: React.FC = () => {
       const { data, error } = await supabase
         .from('requests')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false }); // 1. Strict Reverse Chronological Order
 
       if (error) throw error;
       setRequests(data || []);
@@ -46,6 +46,35 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchRequests();
+
+    // 2. Real-time Subscription: Automatically update UI when new records arrive
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'requests',
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setRequests((prev) => [payload.new as ServiceRequest, ...prev]);
+            showNotification('New project inquiry received in real-time.', 'success');
+          } else if (payload.eventType === 'UPDATE') {
+            setRequests((prev) => 
+              prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new } : r)
+            );
+          } else if (payload.eventType === 'DELETE') {
+            setRequests((prev) => prev.filter(r => r.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -91,11 +120,6 @@ const AdminDashboard: React.FC = () => {
         body: JSON.stringify(payload)
       });
 
-      setRequests(prev => prev.map(r => r.id === request.id ? { ...r, status: 'Accepted' as ServiceStatus } : r));
-      if (selectedRequest?.id === request.id) {
-        setSelectedRequest({ ...selectedRequest, status: 'Accepted' });
-      }
-
       showNotification('Project production phase activated.', 'success');
     } catch (err: any) {
       console.error('Acceptance Logic Error:', err);
@@ -115,9 +139,6 @@ const AdminDashboard: React.FC = () => {
     try {
       const { error } = await supabase.from('requests').update(updates).eq('id', id);
       if (error) throw error;
-      
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
-      if (selectedRequest?.id === id) setSelectedRequest({ ...selectedRequest, ...updates } as ServiceRequest);
       showNotification('Cloud database updated successfully.', 'success');
     } catch (err) {
       console.error(err);
@@ -132,9 +153,6 @@ const AdminDashboard: React.FC = () => {
     try {
       const { error } = await supabase.from('requests').delete().eq('id', id);
       if (error) throw error;
-      
-      setRequests(prev => prev.filter(r => r.id !== id));
-      setSelectedRequest(null);
       showNotification('Project record removed.', 'success');
     } catch (err) {
       console.error(err);
@@ -160,6 +178,25 @@ const AdminDashboard: React.FC = () => {
       case 'Rejected': return 'bg-red-50 text-red-600 border border-red-100';
       default: return 'bg-gray-50 text-gray-500';
     }
+  };
+
+  const isRecentlyCreated = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const now = new Date();
+    const created = new Date(dateStr);
+    const diff = now.getTime() - created.getTime();
+    return diff < 1000 * 60 * 60 * 24; // Less than 24 hours
+  };
+
+  const formatTimestamp = (dateStr?: string) => {
+    if (!dateStr) return 'N/A';
+    const date = new Date(dateStr);
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
   };
 
   return (
@@ -262,9 +299,10 @@ const AdminDashboard: React.FC = () => {
 
         <div className="bg-white rounded-[2rem] lg:rounded-[3rem] overflow-hidden shadow-2xl shadow-indigo-100/30 border border-slate-100">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[600px] lg:min-w-0">
+            <table className="w-full text-left border-collapse min-w-[800px] lg:min-w-0">
               <thead>
                 <tr className="bg-slate-50/50 border-b border-indigo-50">
+                  <th className="px-6 lg:px-8 py-5 text-[9px] font-black uppercase tracking-widest text-slate-400">TIMESTAMP</th>
                   <th className="px-6 lg:px-8 py-5 text-[9px] font-black uppercase tracking-widest text-slate-400">ID</th>
                   <th className="px-6 lg:px-8 py-5 text-[9px] font-black uppercase tracking-widest text-slate-400">CLIENT</th>
                   <th className="hidden md:table-cell px-6 lg:px-8 py-5 text-[9px] font-black uppercase tracking-widest text-slate-400">DOMAIN</th>
@@ -273,51 +311,64 @@ const AdminDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-indigo-50">
-                {filteredRequests.map((req) => (
-                  <tr 
-                    key={req.id} 
-                    className="hover:bg-indigo-50/30 transition-colors cursor-pointer group"
-                    onClick={() => setSelectedRequest(req)}
-                  >
-                    <td className="px-6 lg:px-8 py-6">
-                      <div className="text-[9px] text-slate-400 font-bold tracking-widest uppercase">{req.request_id}</div>
-                    </td>
-                    <td className="px-6 lg:px-8 py-6">
-                      <div className="font-bold text-indigo-900 text-base group-hover:text-indigo-600 transition-colors leading-tight mb-1">{req.full_name}</div>
-                      <div className="text-[10px] text-slate-400 font-medium truncate max-w-[150px]">{req.email}</div>
-                    </td>
-                    <td className="hidden md:table-cell px-6 lg:px-8 py-6">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
-                        {req.service.replace('-', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 lg:px-8 py-6">
-                      <span className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border ${getStatusColor(req.status)}`}>
-                        {req.status}
-                      </span>
-                    </td>
-                    <td className="px-6 lg:px-8 py-6 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-2 sm:gap-3">
-                        {req.status === 'Pending' && (
+                {filteredRequests.map((req) => {
+                  const isNew = isRecentlyCreated(req.created_at);
+                  return (
+                    <tr 
+                      key={req.id} 
+                      className={`hover:bg-indigo-50/30 transition-all cursor-pointer group animate-fade ${isNew ? 'bg-indigo-50/10' : ''}`}
+                      onClick={() => setSelectedRequest(req)}
+                    >
+                      <td className="px-6 lg:px-8 py-6">
+                        <div className="flex flex-col">
+                          <span className="text-[11px] text-slate-500 font-bold">{formatTimestamp(req.created_at)}</span>
+                          {isNew && (
+                            <span className="inline-flex items-center gap-1 text-[8px] font-black text-indigo-600 uppercase tracking-widest mt-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span> NEW
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 lg:px-8 py-6">
+                        <div className="text-[9px] text-slate-400 font-bold tracking-widest uppercase">{req.request_id}</div>
+                      </td>
+                      <td className="px-6 lg:px-8 py-6">
+                        <div className="font-bold text-indigo-900 text-base group-hover:text-indigo-600 transition-colors leading-tight mb-1">{req.full_name}</div>
+                        <div className="text-[10px] text-slate-400 font-medium truncate max-w-[150px]">{req.email}</div>
+                      </td>
+                      <td className="hidden md:table-cell px-6 lg:px-8 py-6">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                          {req.service.replace('-', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-6 lg:px-8 py-6">
+                        <span className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border ${getStatusColor(req.status)}`}>
+                          {req.status}
+                        </span>
+                      </td>
+                      <td className="px-6 lg:px-8 py-6 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-2 sm:gap-3">
+                          {req.status === 'Pending' && (
+                            <button 
+                              disabled={updating}
+                              onClick={() => acceptRequest(req)}
+                              className="w-9 h-9 bg-green-50 text-green-600 rounded-xl flex items-center justify-center hover:bg-green-600 hover:text-white transition-all border border-green-100 active:scale-95"
+                              title="Accept Project"
+                            >
+                              <Check size={16} />
+                            </button>
+                          )}
                           <button 
-                            disabled={updating}
-                            onClick={() => acceptRequest(req)}
-                            className="w-9 h-9 bg-green-50 text-green-600 rounded-xl flex items-center justify-center hover:bg-green-600 hover:text-white transition-all border border-green-100 active:scale-95"
-                            title="Accept Project"
+                            onClick={() => setSelectedRequest(req)}
+                            className="w-9 h-9 bg-white text-indigo-600 rounded-xl flex items-center justify-center border border-slate-100 hover:border-indigo-600 transition-all shadow-sm active:scale-95"
                           >
-                            <Check size={16} />
+                            <ExternalLink size={16} />
                           </button>
-                        )}
-                        <button 
-                          onClick={() => setSelectedRequest(req)}
-                          className="w-9 h-9 bg-white text-indigo-600 rounded-xl flex items-center justify-center border border-slate-100 hover:border-indigo-600 transition-all shadow-sm active:scale-95"
-                        >
-                          <ExternalLink size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -341,7 +392,11 @@ const AdminDashboard: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-2xl lg:text-3xl font-serif font-black text-indigo-900">{selectedRequest.request_id}</h2>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">Project Insight Brief</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Project Insight Brief</p>
+                    <span className="text-slate-300">•</span>
+                    <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Submitted {formatTimestamp(selectedRequest.created_at)}</p>
+                  </div>
                 </div>
               </div>
               <button onClick={() => setSelectedRequest(null)} className="w-10 h-10 lg:w-14 lg:h-14 rounded-full bg-white flex items-center justify-center text-slate-300 hover:text-red-500 transition-all shadow-sm hover:rotate-90">
@@ -406,22 +461,28 @@ const AdminDashboard: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 mb-6 lg:mb-8">
                   <div className="space-y-3 lg:space-y-4">
                     <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Scheduled Kickoff</label>
-                    <input 
-                      type="date" 
-                      value={selectedRequest.start_date || ''} 
-                      onChange={(e) => updateRequestData(selectedRequest.id!, { start_date: e.target.value })} 
-                      className="w-full bg-white border border-slate-100 rounded-xl px-5 py-3 lg:px-6 lg:py-4 font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
-                    />
+                    <div className="relative">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
+                      <input 
+                        type="date" 
+                        value={selectedRequest.start_date || ''} 
+                        onChange={(e) => updateRequestData(selectedRequest.id!, { start_date: e.target.value })} 
+                        className="w-full bg-white border border-slate-100 rounded-xl pl-12 pr-6 py-3 lg:px-6 lg:py-4 font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                      />
+                    </div>
                   </div>
                   <div className="space-y-3 lg:space-y-4">
                     <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Collaboration URL</label>
-                    <input 
-                      type="url" 
-                      placeholder="https://collab.luminastudio.com/p/..." 
-                      value={selectedRequest.meeting_link || ''} 
-                      onChange={(e) => updateRequestData(selectedRequest.id!, { meeting_link: e.target.value })} 
-                      className="w-full bg-white border border-slate-100 rounded-xl px-5 py-3 lg:px-6 lg:py-4 font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
-                    />
+                    <div className="relative">
+                      <ExternalLink className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16} />
+                      <input 
+                        type="url" 
+                        placeholder="https://collab.luminastudio.com/p/..." 
+                        value={selectedRequest.meeting_link || ''} 
+                        onChange={(e) => updateRequestData(selectedRequest.id!, { meeting_link: e.target.value })} 
+                        className="w-full bg-white border border-slate-100 rounded-xl pl-12 pr-6 py-3 lg:px-6 lg:py-4 font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-3 lg:space-y-4">

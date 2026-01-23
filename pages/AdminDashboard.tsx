@@ -32,7 +32,7 @@ const AdminDashboard: React.FC = () => {
       const { data, error } = await supabase
         .from('requests')
         .select('*')
-        .order('created_at', { ascending: false }); // 1. Strict Reverse Chronological Order
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
       setRequests(data || []);
@@ -47,7 +47,6 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => {
     fetchRequests();
 
-    // 2. Real-time Subscription: Automatically update UI when new records arrive
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -58,15 +57,22 @@ const AdminDashboard: React.FC = () => {
           table: 'requests',
         },
         (payload) => {
+          const updatedRecord = payload.new as ServiceRequest;
+          
           if (payload.eventType === 'INSERT') {
-            setRequests((prev) => [payload.new as ServiceRequest, ...prev]);
+            setRequests((prev) => [updatedRecord, ...prev]);
             showNotification('New project inquiry received in real-time.', 'success');
           } else if (payload.eventType === 'UPDATE') {
             setRequests((prev) => 
-              prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new } : r)
+              prev.map(r => r.id === updatedRecord.id ? { ...r, ...updatedRecord } : r)
+            );
+            // Sync current modal if open
+            setSelectedRequest(current => 
+              current?.id === updatedRecord.id ? { ...current, ...updatedRecord } : current
             );
           } else if (payload.eventType === 'DELETE') {
             setRequests((prev) => prev.filter(r => r.id !== payload.old.id));
+            if (selectedRequest?.id === payload.old.id) setSelectedRequest(null);
           }
         }
       )
@@ -75,7 +81,7 @@ const AdminDashboard: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [selectedRequest?.id]);
 
   const handleLogout = async () => {
     try {
@@ -87,8 +93,13 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const showNotification = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
   const acceptRequest = async (request: ServiceRequest) => {
-    if (!request.id) return;
+    if (!request.id || updating) return;
     setUpdating(true);
     
     try {
@@ -99,7 +110,14 @@ const AdminDashboard: React.FC = () => {
 
       if (sbError) throw sbError;
 
-      // Simulated external integration
+      // Update Local State immediately to prevent "hang" feel
+      const updatedItem = { ...request, status: 'Accepted' as ServiceStatus };
+      setRequests(prev => prev.map(r => r.id === request.id ? updatedItem : r));
+      if (selectedRequest?.id === request.id) setSelectedRequest(updatedItem);
+
+      showNotification('Project production phase activated.', 'success');
+
+      // Background Integration (Non-blocking)
       const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwtPl0XA_2zAW2bS2UuA95a0EFAGTrNLP-7_8q10tsU5K_1HQwB0AthIf0X9bkI45L6Yw/exec';
       const payload = {
         request_id: request.request_id,
@@ -118,9 +136,8 @@ const AdminDashboard: React.FC = () => {
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      });
+      }).catch(e => console.warn('Background sync warning:', e.message));
 
-      showNotification('Project production phase activated.', 'success');
     } catch (err: any) {
       console.error('Acceptance Logic Error:', err);
       showNotification('Project update failed.', 'error');
@@ -129,16 +146,17 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
-  };
-
   const updateRequestData = async (id: string, updates: Partial<ServiceRequest>) => {
+    if (updating) return;
     setUpdating(true);
     try {
       const { error } = await supabase.from('requests').update(updates).eq('id', id);
       if (error) throw error;
+      
+      // Update local state immediately
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+      if (selectedRequest?.id === id) setSelectedRequest(prev => prev ? { ...prev, ...updates } : null);
+      
       showNotification('Cloud database updated successfully.', 'success');
     } catch (err) {
       console.error(err);
@@ -153,6 +171,8 @@ const AdminDashboard: React.FC = () => {
     try {
       const { error } = await supabase.from('requests').delete().eq('id', id);
       if (error) throw error;
+      setRequests(prev => prev.filter(r => r.id !== id));
+      if (selectedRequest?.id === id) setSelectedRequest(null);
       showNotification('Project record removed.', 'success');
     } catch (err) {
       console.error(err);
@@ -185,7 +205,7 @@ const AdminDashboard: React.FC = () => {
     const now = new Date();
     const created = new Date(dateStr);
     const diff = now.getTime() - created.getTime();
-    return diff < 1000 * 60 * 60 * 24; // Less than 24 hours
+    return diff < 1000 * 60 * 60 * 24;
   };
 
   const formatTimestamp = (dateStr?: string) => {
@@ -355,7 +375,7 @@ const AdminDashboard: React.FC = () => {
                               className="w-9 h-9 bg-green-50 text-green-600 rounded-xl flex items-center justify-center hover:bg-green-600 hover:text-white transition-all border border-green-100 active:scale-95"
                               title="Accept Project"
                             >
-                              <Check size={16} />
+                              {updating && selectedRequest?.id === req.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                             </button>
                           )}
                           <button 

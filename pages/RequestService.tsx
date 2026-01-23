@@ -1,10 +1,8 @@
-
 import React, { useState } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { CheckCircle, ArrowRight, Loader2, Send, Sparkles, AlertCircle } from 'lucide-react';
 import { SERVICES } from '../constants.tsx';
 import { GoogleGenAI } from "@google/genai";
-import { supabase } from '../lib/supabase.ts'; // Direct import of the configured client
 
 const { useParams, useNavigate } = ReactRouterDOM;
 
@@ -60,8 +58,8 @@ const RequestService: React.FC = () => {
   };
 
   /**
-   * ROBUST FRONTEND SUBMISSION
-   * Directly interacts with Supabase to bypass routing/API configuration issues.
+   * CENTRALIZED BACKEND SUBMISSION
+   * Calls the /api/submit-form endpoint to handle DB insertion and Email notifications.
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,26 +69,23 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // 1. Perform direct insertion into the Supabase 'requests' table
-      const { error: sbError } = await supabase
-        .from('requests')
-        .insert([{
-          request_id: newRequestId,
-          full_name: formData.fullName,
-          email: formData.email.toLowerCase().trim(),
-          service: formData.service,
-          project_details: formData.projectDetails,
-          budget_range: formData.budgetRange,
-          deadline: formData.deadline,
-          status: 'Pending',
-          created_at: new Date().toISOString()
-        }]);
+      // Calling the local API route
+      const response = await fetch('/api/submit-form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          requestId: newRequestId
+        })
+      });
 
-      if (sbError) {
-        throw new Error(sbError.message);
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Server uplink failed.');
       }
 
-      // 2. Success Path
+      // Success Path
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });

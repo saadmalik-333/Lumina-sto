@@ -4,21 +4,19 @@ import nodemailer from 'nodemailer';
 
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
- * Path: /api/submit-form
  * 
- * Handles project inquiries by:
- * 1. Validating the incoming project data.
- * 2. Persisting the inquiry to the Supabase database.
- * 3. Notifying the admin via a Gmail-powered SMTP relay.
+ * Handles project inquiries:
+ * 1. Validates the incoming project data.
+ * 2. Persists the inquiry to Supabase.
+ * 3. Notifies the admin via Gmail SMTP.
  */
 
 export async function POST(req) {
-  console.log("--- [START] Form Submission API Trace ---");
+  console.log("--- [START] API Submission Triggered ---");
   
   try {
-    // 1. Extract and log JSON body
     const body = await req.json();
-    console.log("Data received:", body);
+    console.log("Payload received:", body);
 
     const {
       fullName,
@@ -30,18 +28,17 @@ export async function POST(req) {
       requestId
     } = body;
 
-    // 2. Critical Field Validation
-    if (!fullName || !email || !projectDetails) {
-      console.error("API Error: Missing core project fields.");
+    // 1. Validation
+    if (!fullName || !email || !projectDetails || !requestId) {
+      console.error("Validation Error: Missing mandatory fields.");
       return NextResponse.json({ 
         success: false, 
-        error: "Required fields (fullName, email, projectDetails) are missing." 
+        error: "Mandatory fields are missing." 
       }, { status: 400 });
     }
 
-    // 3. Database Operation: Supabase Insertion
-    // Using service role key to ensure successful insertion regardless of RLS constraints.
-    console.log("Step 1/2: Connecting to Supabase...");
+    // 2. Database Sync
+    console.log("Database Sync: Connecting to Supabase...");
     const supabase = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -62,91 +59,61 @@ export async function POST(req) {
     ]);
 
     if (dbError) {
-      console.error("Supabase Database Failure:", dbError.message);
-      // Throw to be handled by the main catch block
-      throw new Error(`Cloud Database Error: ${dbError.message}`);
+      console.error("Supabase Error:", dbError.message);
+      throw new Error(`DB Sync Failed: ${dbError.message}`);
     }
-    console.log("Step 1/2: Supabase record synchronized.");
+    console.log("Database Sync: Record created successfully.");
 
-    // 4. Notification Operation: Nodemailer (SMTP)
-    console.log("Step 2/2: Initializing Nodemailer SMTP relay...");
+    // 3. Email Notification
+    console.log("Notification: Initializing SMTP relay...");
     
-    // Check if variables are present to avoid runtime errors
     if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !process.env.ADMIN_EMAIL) {
-      console.error("Configuration Error: SMTP credentials missing in environment.");
-      throw new Error("Server misconfigured: Email credentials missing.");
+      console.warn("Notification: SMTP Credentials missing from environment. Skipping email.");
+    } else {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.GMAIL_USER,
+          pass: process.env.GMAIL_APP_PASSWORD,
+        },
+      });
+
+      const mailOptions = {
+        from: `"Lumina Platform" <${process.env.GMAIL_USER}>`,
+        to: process.env.ADMIN_EMAIL,
+        subject: `NEW INQUIRY: ${fullName} (${requestId})`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #4f46e5;">New Project Request</h2>
+            <p><strong>ID:</strong> ${requestId}</p>
+            <p><strong>Client:</strong> ${fullName}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Service:</strong> ${service}</p>
+            <p><strong>Budget:</strong> ${budgetRange}</p>
+            <p><strong>Deadline:</strong> ${deadline}</p>
+            <hr />
+            <p><strong>Details:</strong></p>
+            <p style="white-space: pre-wrap;">${projectDetails}</p>
+          </div>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+      console.log("Notification: Admin email dispatched.");
     }
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-    });
-
-    const mailOptions = {
-      from: `"Lumina Studio System" <${process.env.GMAIL_USER}>`,
-      to: process.env.ADMIN_EMAIL,
-      subject: `NEW PROJECT BRIEF: ${fullName} (${requestId})`,
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 24px; padding: 40px; color: #0f172a;">
-          <div style="text-align: center; margin-bottom: 32px;">
-            <h1 style="font-size: 24px; font-weight: 800; color: #4f46e5; margin: 0; letter-spacing: -0.025em;">LUMINA CREATIVE STUDIO</h1>
-            <p style="font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 8px;">Inbound Client Inquiry</p>
-          </div>
-          
-          <div style="background: #f8fafc; border-radius: 16px; padding: 24px; margin-bottom: 32px;">
-            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Request ID:</strong> ${requestId}</p>
-            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Client:</strong> ${fullName}</p>
-            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Email:</strong> ${email}</p>
-            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Service Category:</strong> ${service}</p>
-            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Financial Tier:</strong> ${budgetRange}</p>
-            <p style="margin: 0; font-size: 14px;"><strong style="color: #4f46e5;">Deadline:</strong> ${deadline}</p>
-          </div>
-
-          <div style="margin-bottom: 32px;">
-            <h3 style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 12px;">The Creative Brief</h3>
-            <div style="font-size: 16px; line-height: 1.6; color: #334155; font-style: italic; border-left: 4px solid #4f46e5; padding-left: 20px;">
-              ${projectDetails.replace(/\n/g, '<br>')}
-            </div>
-          </div>
-
-          <div style="border-top: 1px solid #f1f5f9; padding-top: 32px; text-align: center;">
-            <p style="font-size: 11px; color: #94a3b8; margin: 0;">This email was generated by the Lumina Platform API.</p>
-          </div>
-        </div>
-      `,
-    };
-
-    console.log(`Step 2/2: Transmitting email to ${process.env.ADMIN_EMAIL}...`);
-    await transporter.sendMail(mailOptions);
-    console.log("Step 2/2: SMTP transmission successful.");
-
-    // 5. Finalize response
-    console.log("--- [END] Inquiry Successfully Processed ---");
-    return NextResponse.json({ 
-      success: true, 
-      message: "Form submitted successfully" 
-    }, { status: 200 });
+    console.log("--- [END] Submission Process Complete ---");
+    return NextResponse.json({ success: true, requestId }, { status: 200 });
 
   } catch (err) {
-    console.error("CRITICAL API FAILURE:", err.message);
-    
-    // Determine status code based on error context
-    let statusCode = 500;
-    if (err.message.includes("Required fields")) statusCode = 400;
-
+    console.error("CRITICAL API ERROR:", err.message);
     return NextResponse.json({ 
       success: false, 
       error: err.message || "Internal server error" 
-    }, { status: statusCode });
+    }, { status: 500 });
   }
 }
 
-/**
- * Handle OPTIONS preflight requests for CORS
- */
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -156,17 +123,4 @@ export async function OPTIONS() {
       'Access-Control-Allow-Headers': 'Content-Type',
     },
   });
-}
-
-/**
- * Block unsupported methods
- */
-export async function GET() {
-  return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 });
-}
-export async function PUT() {
-  return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 });
-}
-export async function DELETE() {
-  return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 });
 }

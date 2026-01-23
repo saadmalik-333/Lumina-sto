@@ -57,44 +57,48 @@ const RequestService: React.FC = () => {
     }
   };
 
-  /**
-   * CENTRALIZED BACKEND SUBMISSION
-   * Calls the /api/submit-form endpoint to handle DB insertion and Email notifications.
-   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
 
     const newRequestId = generateRequestId();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s Hard Timeout
 
     try {
-      // Calling the local API route
       const response = await fetch('/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          requestId: newRequestId
-        })
+        body: JSON.stringify({ ...formData, requestId: newRequestId }),
+        signal: controller.signal
       });
 
-      const result = await response.json();
+      clearTimeout(timeoutId);
+
+      const result = await response.json().catch(() => ({ 
+        success: false, 
+        error: "Server returned a non-JSON response. Contact support." 
+      }));
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Server uplink failed.');
+        throw new Error(result.error || `Uplink failed (Status: ${response.status})`);
       }
 
-      // Success Path
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      console.error('Submission Error:', err);
-      setErrorMsg(err.message || 'The studio uplink failed. Please check your connection and try again.');
+      console.error('Form Error:', err);
+      if (err.name === 'AbortError') {
+        setErrorMsg('The connection timed out. Please try again.');
+      } else {
+        setErrorMsg(err.message || 'The studio uplink failed. Please check your connectivity.');
+      }
     } finally {
       setLoading(false);
+      clearTimeout(timeoutId);
     }
   };
 

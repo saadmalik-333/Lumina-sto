@@ -2,46 +2,43 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
+// Force Node.js runtime for Nodemailer compatibility
+export const runtime = 'nodejs';
+
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
  * 
- * Handles project inquiries:
- * 1. Validates the incoming project data.
- * 2. Persists the inquiry to Supabase.
- * 3. Notifies the admin via Gmail SMTP.
+ * Flow:
+ * 1. Validate Payload
+ * 2. Persist to Supabase (High Priority)
+ * 3. Dispatch Notification (Background Task with Timeout)
  */
 
 export async function POST(req) {
-  console.log("--- [START] API Submission Triggered ---");
+  const transactionId = `TX-${Math.random().toString(36).substring(7).toUpperCase()}`;
+  const timestamp = new Date().toISOString();
   
+  console.log(`[${timestamp}] [${transactionId}] --- NEW SUBMISSION RECEIVED ---`);
+
   try {
+    // 1. Parse Request
     const body = await req.json();
-    console.log("Payload received:", body);
+    const { fullName, email, projectDetails, service, budgetRange, deadline, requestId } = body;
 
-    const {
-      fullName,
-      email,
-      projectDetails,
-      service,
-      budgetRange,
-      deadline,
-      requestId
-    } = body;
-
-    // 1. Validation
+    // 2. Strict Validation
     if (!fullName || !email || !projectDetails || !requestId) {
-      console.error("Validation Error: Missing mandatory fields.");
+      console.error(`[${transactionId}] Validation Failed: Missing required fields.`);
       return NextResponse.json({ 
         success: false, 
-        error: "Mandatory fields are missing." 
+        error: "Critical fields (Name, Email, Details, ID) are missing." 
       }, { status: 400 });
     }
 
-    // 2. Database Sync
-    console.log("Database Sync: Connecting to Supabase...");
+    // 3. Supabase Database Sync
+    console.log(`[${transactionId}] DB Sync: Initializing Cloud Connection...`);
     const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
+      process.env.SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
     );
 
     const { error: dbError } = await supabase.from('requests').insert([
@@ -54,73 +51,97 @@ export async function POST(req) {
         budget_range: budgetRange,
         deadline: deadline,
         status: 'Pending',
-        created_at: new Date().toISOString()
+        created_at: timestamp
       }
     ]);
 
     if (dbError) {
-      console.error("Supabase Error:", dbError.message);
-      throw new Error(`DB Sync Failed: ${dbError.message}`);
+      console.error(`[${transactionId}] DB Sync Error:`, dbError.message);
+      throw new Error(`Cloud DB failure: ${dbError.message}`);
     }
-    console.log("Database Sync: Record created successfully.");
+    console.log(`[${transactionId}] DB Sync: Success. Record ${requestId} created.`);
 
-    // 3. Email Notification
-    console.log("Notification: Initializing SMTP relay...");
-    
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !process.env.ADMIN_EMAIL) {
-      console.warn("Notification: SMTP Credentials missing from environment. Skipping email.");
-    } else {
+    // 4. Notification (Wrapped in a timeout race to prevent frontend hang)
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, ''); // Strip spaces
+    const adminEmail = process.env.ADMIN_EMAIL;
+
+    if (gmailUser && gmailPass && adminEmail) {
+      console.log(`[${transactionId}] Notification: Attempting SMTP dispatch...`);
+      
       const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.GMAIL_USER,
-          pass: process.env.GMAIL_APP_PASSWORD,
-        },
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: { user: gmailUser, pass: gmailPass },
       });
 
       const mailOptions = {
-        from: `"Lumina Platform" <${process.env.GMAIL_USER}>`,
-        to: process.env.ADMIN_EMAIL,
-        subject: `NEW INQUIRY: ${fullName} (${requestId})`,
+        from: `"Lumina Studio" <${gmailUser}>`,
+        to: adminEmail,
+        subject: `NEW BRIEF: ${fullName} (${requestId})`,
         html: `
-          <div style="font-family: sans-serif; max-width: 600px; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-            <h2 style="color: #4f46e5;">New Project Request</h2>
-            <p><strong>ID:</strong> ${requestId}</p>
-            <p><strong>Client:</strong> ${fullName}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Service:</strong> ${service}</p>
-            <p><strong>Budget:</strong> ${budgetRange}</p>
-            <p><strong>Deadline:</strong> ${deadline}</p>
-            <hr />
-            <p><strong>Details:</strong></p>
-            <p style="white-space: pre-wrap;">${projectDetails}</p>
+          <div style="font-family: sans-serif; max-width: 600px; padding: 25px; border: 1px solid #f1f5f9; border-radius: 20px; color: #1e293b;">
+            <h2 style="color: #4f46e5; margin-bottom: 20px;">Project Inquiry: ${requestId}</h2>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+              <p><strong>Client:</strong> ${fullName}</p>
+              <p><strong>Email:</strong> ${email}</p>
+              <p><strong>Service:</strong> ${service}</p>
+              <p><strong>Budget:</strong> ${budgetRange}</p>
+            </div>
+            <p><strong>The Brief:</strong></p>
+            <p style="white-space: pre-wrap; line-height: 1.6;">${projectDetails}</p>
           </div>
         `,
       };
 
-      await transporter.sendMail(mailOptions);
-      console.log("Notification: Admin email dispatched.");
+      try {
+        // We race the email against a 6-second timeout
+        await Promise.race([
+          transporter.sendMail(mailOptions),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_TIMEOUT')), 6000))
+        ]);
+        console.log(`[${transactionId}] Notification: Admin email sent.`);
+      } catch (emailErr) {
+        console.warn(`[${transactionId}] Notification: Email failed or timed out, but DB sync was successful.`);
+      }
+    } else {
+      console.warn(`[${transactionId}] Notification: Skipped. Check ENV variables.`);
     }
 
-    console.log("--- [END] Submission Process Complete ---");
-    return NextResponse.json({ success: true, requestId }, { status: 200 });
+    console.log(`[${transactionId}] --- SUBMISSION COMPLETED SUCCESSFULLY ---`);
+    return NextResponse.json({ 
+      success: true, 
+      message: "Form submitted successfully",
+      requestId 
+    }, { status: 200 });
 
   } catch (err) {
-    console.error("CRITICAL API ERROR:", err.message);
+    console.error(`[${transactionId}] CRITICAL FAILURE:`, err.message);
     return NextResponse.json({ 
       success: false, 
-      error: err.message || "Internal server error" 
+      error: err.message || "An internal error occurred." 
     }, { status: 500 });
   }
 }
 
+/**
+ * Handle CORS Preflight
+ */
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });
 }
+
+/**
+ * Method Not Allowed Handlers
+ */
+export async function GET() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
+export async function PUT() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
+export async function DELETE() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }

@@ -1,5 +1,4 @@
-
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import Navbar from './components/Navbar.tsx';
 import Footer from './components/Footer.tsx';
@@ -20,18 +19,18 @@ const ClientDashboard = lazy(() => import('./pages/ClientDashboard.tsx'));
  * Premium Loading Fallback with shimmering studio identity
  */
 const LoadingFallback = () => (
-  <div className="min-h-screen flex items-center justify-center bg-white animate-fade">
+  <div className="min-h-screen flex items-center justify-center bg-white">
     <div className="flex flex-col items-center gap-6">
       <div className="relative">
-        <div className="text-4xl font-serif font-black tracking-tighter text-indigo-900 opacity-20">LUMINA</div>
-        <div className="absolute inset-0 text-4xl font-serif font-black tracking-tighter text-indigo-600 animate-pulse overflow-hidden">
+        <div className="text-5xl font-serif font-black tracking-tighter text-indigo-900 opacity-5">LUMINA</div>
+        <div className="absolute inset-0 text-5xl font-serif font-black tracking-tighter text-indigo-600 animate-pulse overflow-hidden">
           LUMINA
         </div>
       </div>
-      <div className="flex items-center gap-1.5">
-        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.3s]"></div>
-        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.15s]"></div>
-        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce"></div>
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.3s]"></div>
+        <div className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.15s]"></div>
+        <div className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce"></div>
       </div>
     </div>
   </div>
@@ -47,17 +46,26 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [pathname]);
+  return null;
+};
+
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isAdminDashboard = location.pathname.startsWith('/admin/dashboard');
 
   return (
     <div className="flex flex-col min-h-screen">
+      <ScrollToTop />
       {!isAdminDashboard && <Navbar />}
-      {/* Container for smooth content appearance */}
-      <main className="flex-grow animate-fade">
+      {/* Route animation key ensures the whole main tag re-triggers its animate-route animation on path change */}
+      <main key={location.pathname} className="flex-grow animate-route overflow-hidden">
         <Suspense fallback={<LoadingFallback />}>
-          <Routes>
+          <Routes location={location}>
             <Route path="/" element={<Home />} />
             <Route path="/services/:serviceId" element={<ServicePage />} />
             <Route path="/request/:serviceId" element={<RequestService />} />

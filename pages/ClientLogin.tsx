@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import * as ReactRouterDOM from 'react-router-dom';
 import { 
@@ -63,7 +62,7 @@ const ClientLogin: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 pt-40 lg:pt-52 pb-20">
       <div className="max-w-md w-full">
         <div className="text-center mb-10">
           <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-lg mx-auto mb-6">

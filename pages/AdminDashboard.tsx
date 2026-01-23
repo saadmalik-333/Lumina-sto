@@ -17,6 +17,7 @@ const { useNavigate, Link } = ReactRouterDOM;
 const AdminDashboard: React.FC = () => {
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ServiceStatus | 'All'>('All');
   const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null);
@@ -44,6 +45,48 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const exportToCSV = () => {
+    if (filteredRequests.length === 0) {
+      showNotification('No data available to export.', 'error');
+      return;
+    }
+    
+    setExporting(true);
+    try {
+      const headers = ['Request ID', 'Full Name', 'Email', 'Service', 'Budget', 'Deadline', 'Status', 'Submitted At'];
+      const rows = filteredRequests.map(req => [
+        req.request_id,
+        req.full_name,
+        req.email,
+        req.service,
+        req.budget_range,
+        req.deadline,
+        req.status,
+        req.created_at ? new Date(req.created_at).toLocaleString() : 'N/A'
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `lumina_projects_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showNotification('Project archive exported successfully.', 'success');
+    } catch (err) {
+      showNotification('Export failed. Please try again.', 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   useEffect(() => {
     fetchRequests();
 
@@ -66,7 +109,6 @@ const AdminDashboard: React.FC = () => {
             setRequests((prev) => 
               prev.map(r => r.id === updatedRecord.id ? { ...r, ...updatedRecord } : r)
             );
-            // Sync current modal if open
             setSelectedRequest(current => 
               current?.id === updatedRecord.id ? { ...current, ...updatedRecord } : current
             );
@@ -110,14 +152,12 @@ const AdminDashboard: React.FC = () => {
 
       if (sbError) throw sbError;
 
-      // Update Local State immediately to prevent "hang" feel
       const updatedItem = { ...request, status: 'Accepted' as ServiceStatus };
       setRequests(prev => prev.map(r => r.id === request.id ? updatedItem : r));
       if (selectedRequest?.id === request.id) setSelectedRequest(updatedItem);
 
       showNotification('Project production phase activated.', 'success');
 
-      // Background Integration (Non-blocking)
       const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwtPl0XA_2zAW2bS2UuA95a0EFAGTrNLP-7_8q10tsU5K_1HQwB0AthIf0X9bkI45L6Yw/exec';
       const payload = {
         request_id: request.request_id,
@@ -153,7 +193,6 @@ const AdminDashboard: React.FC = () => {
       const { error } = await supabase.from('requests').update(updates).eq('id', id);
       if (error) throw error;
       
-      // Update local state immediately
       setRequests(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
       if (selectedRequest?.id === id) setSelectedRequest(prev => prev ? { ...prev, ...updates } : null);
       
@@ -220,7 +259,7 @@ const AdminDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col pt-20">
+    <div className="min-h-screen bg-slate-50 flex flex-col pt-20 lg:pt-24">
       <nav className="fixed top-0 left-0 right-0 z-[100] bg-white/80 backdrop-blur-xl border-b border-indigo-50 px-6 py-4 shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-4 lg:gap-6">
@@ -281,8 +320,13 @@ const AdminDashboard: React.FC = () => {
               <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
               <span className="text-[10px] font-black uppercase tracking-widest lg:hidden">Refresh</span>
             </button>
-            <button className="flex-[2] lg:flex-none bg-white border border-slate-100 text-indigo-600 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-2">
-              <Download size={16} /> Export
+            <button 
+              onClick={exportToCSV}
+              disabled={exporting}
+              className="flex-[2] lg:flex-none bg-white border border-slate-100 text-indigo-600 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+            >
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} 
+              {exporting ? 'Exporting...' : 'Export'}
             </button>
           </div>
         </header>

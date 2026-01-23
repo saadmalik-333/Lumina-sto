@@ -2,10 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 
 /**
- * FALLBACK API HANDLER: /api/submit-form.js
- * Mirrors the robust logic of the App Router version for maximum compatibility.
+ * PRODUCTION API HANDLER: /api/submit-form.js
+ * Optimized for Vercel Node.js serverless runtime.
  */
 export default async function handler(req, res) {
+  // 1. CORS Preflight
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -13,46 +14,111 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
+  // 2. Strict Method Check
   if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, error: 'Method Not Allowed' });
+    return res.status(405).json({ success: false, error: 'REST Method Not Allowed' });
   }
 
-  const tId = `FALLBACK-${Math.random().toString(36).substring(7).toUpperCase()}`;
-  console.log(`[${tId}] --- FALLBACK API TRIGGERED ---`);
+  const tId = `TX-${Math.random().toString(36).substring(7).toUpperCase()}`;
+  const now = new Date().toISOString();
+  console.log(`[${now}] [${tId}] --- INBOUND PROJECT BRIEF ---`);
 
   try {
+    // 3. Payload Extraction
     const { fullName, email, projectDetails, service, budgetRange, deadline, requestId } = req.body;
 
+    // 4. Validation
     if (!fullName || !email || !projectDetails || !requestId) {
-      return res.status(400).json({ success: false, error: "Missing required fields." });
+      console.error(`[${tId}] Validation Error: Fields missing.`);
+      return res.status(400).json({ success: false, error: "Required project details are missing." });
     }
 
-    // DB Insertion
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    // 5. Supabase Sync (Using Service Role Key for Admin Access)
+    console.log(`[${tId}] DB Sync: Initializing...`);
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error("Supabase environment variables are not configured.");
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     const { error: dbError } = await supabase.from('requests').insert([
-      { request_id: requestId, full_name: fullName, email: email.toLowerCase(), service, project_details: projectDetails, budget_range: budgetRange, deadline, status: 'Pending' }
+      {
+        request_id: requestId,
+        full_name: fullName.trim(),
+        email: email.toLowerCase().trim(),
+        service: service || 'general',
+        project_details: projectDetails.trim(),
+        budget_range: budgetRange,
+        deadline: deadline,
+        status: 'Pending',
+        created_at: now
+      }
     ]);
 
-    if (dbError) throw dbError;
+    if (dbError) {
+      console.error(`[${tId}] DB Error: ${dbError.message}`);
+      throw new Error(`Database synchronization failed: ${dbError.message}`);
+    }
+    console.log(`[${tId}] DB Sync: Success.`);
 
-    // Email Dispatch
+    // 6. Admin Notification (Nodemailer Gmail SMTP)
     const gmailUser = process.env.GMAIL_USER;
     const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
     const adminEmail = process.env.ADMIN_EMAIL;
 
     if (gmailUser && gmailPass && adminEmail) {
-      const transporter = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: gmailUser, pass: gmailPass } });
-      await transporter.sendMail({
+      console.log(`[${tId}] Email Dispatch: Preparing...`);
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: { user: gmailUser, pass: gmailPass },
+      });
+
+      const mailOptions = {
         from: `"Lumina Studio" <${gmailUser}>`,
         to: adminEmail,
-        subject: `[NEW] ${fullName} - ${requestId}`,
-        text: `New Lead: ${fullName}\nEmail: ${email}\nDetails: ${projectDetails}`
-      }).catch(e => console.error("Email Error:", e.message));
+        subject: `[NEW] Project Brief: ${fullName} - ${requestId}`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; padding: 30px; border: 1px solid #f1f5f9; border-radius: 20px;">
+            <h2 style="color: #4f46e5;">New Project Inquiry</h2>
+            <p><strong>Request ID:</strong> ${requestId}</p>
+            <p><strong>Client:</strong> ${fullName}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Service:</strong> ${service}</p>
+            <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 20px 0;" />
+            <p><strong>Brief:</strong></p>
+            <p style="white-space: pre-wrap; line-height: 1.6;">${projectDetails}</p>
+          </div>
+        `,
+      };
+
+      try {
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`[${tId}] Email Dispatch: Success (ID: ${info.messageId})`);
+      } catch (emailErr) {
+        console.warn(`[${tId}] Email Warning: Dispatch failed. ${emailErr.message}`);
+      }
+    } else {
+      console.warn(`[${tId}] Email Skip: Configuration missing.`);
     }
 
-    return res.status(200).json({ success: true, message: "Form submitted successfully", requestId });
+    // 7. Success Response
+    console.log(`[${tId}] --- SUBMISSION COMPLETE ---`);
+    return res.status(200).json({ 
+      success: true, 
+      message: "Form submitted successfully",
+      requestId 
+    });
+
   } catch (err) {
-    console.error(`[${tId}] Error:`, err.message);
-    return res.status(500).json({ success: false, error: err.message });
+    console.error(`[${tId}] CRITICAL ERROR:`, err.message);
+    return res.status(500).json({ 
+      success: false, 
+      error: err.message || "Uplink synchronization failure." 
+    });
   }
 }

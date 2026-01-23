@@ -65,20 +65,19 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // Pointing exactly to the requested App Router API route
-      const response = await fetch('/app/api/submit-form', {
+      // Pointing to the standardized /api/ route for Vercel functions
+      const response = await fetch('/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
-      // Safely capture response body
       const text = await response.text();
       let result;
       try {
         result = JSON.parse(text);
       } catch (parseErr) {
-        console.error('Non-JSON response from server:', text);
+        console.error('Server returned non-JSON:', text);
         throw new Error(`The studio server returned an invalid response (Error ${response.status}).`);
       }
 
@@ -86,13 +85,12 @@ const RequestService: React.FC = () => {
         throw new Error(result.error || `Uplink failure (Status ${response.status}).`);
       }
 
-      // Success Logic
       setRequestId(newRequestId);
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err: any) {
-      console.error('Submission Critical Error:', err);
+      console.error('Submission Critical Failure:', err);
       setErrorMsg(err.message || 'The studio uplink failed. Please check your network connection.');
     } finally {
       // CRITICAL: Always clear the loading state to stop "Transmitting..." hang

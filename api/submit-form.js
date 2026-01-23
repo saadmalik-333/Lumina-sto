@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 
 /**
  * PRODUCTION API HANDLER: /api/submit-form.js
- * Optimized for Vercel Node.js serverless runtime.
+ * Optimized for Vercel Node.js serverless runtime with fallbacks for environment variables.
  */
 export default async function handler(req, res) {
   // 1. CORS Preflight
@@ -33,16 +33,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: "Required project details are missing." });
     }
 
-    // 5. Supabase Sync (Using Service Role Key for Admin Access)
-    console.log(`[${tId}] DB Sync: Initializing...`);
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    // 5. Supabase Sync (Using Fallbacks for missing environment variables)
+    const supabaseUrl = process.env.SUPABASE_URL || 
+                        process.env.VITE_SUPABASE_URL || 
+                        'https://peosewioliuyozdjziep.supabase.co';
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error("Supabase environment variables are not configured.");
-    }
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
+                        process.env.VITE_SUPABASE_ANON_KEY || 
+                        'sb_publishable_jn7yaeIrf5iNeFSS8fAiMg_RFWzQJOL';
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    console.log(`[${tId}] DB Sync: Connecting to ${supabaseUrl}...`);
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { error: dbError } = await supabase.from('requests').insert([
       {
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
         console.warn(`[${tId}] Email Warning: Dispatch failed. ${emailErr.message}`);
       }
     } else {
-      console.warn(`[${tId}] Email Skip: Configuration missing.`);
+      console.warn(`[${tId}] Email Skip: Configuration missing (GMAIL_USER, GMAIL_APP_PASSWORD, or ADMIN_EMAIL).`);
     }
 
     // 7. Success Response

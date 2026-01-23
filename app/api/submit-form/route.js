@@ -13,7 +13,12 @@ export async function POST(req) {
     const body = await req.json();
     const { fullName, email, projectDetails, service, budgetRange, deadline, requestId } = body;
 
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabaseUrl = process.env.SUPABASE_URL || 'https://peosewioliuyozdjziep.supabase.co';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
+                        process.env.VITE_SUPABASE_ANON_KEY || 
+                        'sb_publishable_jn7yaeIrf5iNeFSS8fAiMg_RFWzQJOL';
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
     const { error: dbError } = await supabase.from('requests').insert([
       {
         request_id: requestId,
@@ -50,5 +55,5 @@ export async function POST(req) {
 }
 
 export async function OPTIONS() {
-  return new Response(null, { status: 24, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS' } });
+  return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' } });
 }

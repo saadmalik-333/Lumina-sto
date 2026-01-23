@@ -4,59 +4,55 @@ import nodemailer from 'nodemailer';
 
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
- * Handles form submissions via NodeMailer (SMTP) and Supabase.
+ * Path: /api/submit-form
+ * 
+ * Handles project inquiries by:
+ * 1. Validating the incoming project data.
+ * 2. Persisting the inquiry to the Supabase database.
+ * 3. Notifying the admin via a Gmail-powered SMTP relay.
  */
 
 export async function POST(req) {
-  console.log("--- [START] Form Submission Received ---");
+  console.log("--- [START] Form Submission API Trace ---");
   
   try {
-    // 1. Parse Request Body
+    // 1. Extract and log JSON body
     const body = await req.json();
-    console.log("Form received:", body);
+    console.log("Data received:", body);
 
-    // 2. Destructure with Fallbacks & Sanitization
     const {
-      fullName = 'Unknown Client',
-      email = 'not-provided@example.com',
-      projectDetails = 'No project details provided',
-      service = 'General Inquiry',
-      budgetRange = 'Not Specified',
-      deadline = 'Not Specified',
-      requestId = `LMN-${Math.floor(1000 + Math.random() * 9000)}`
+      fullName,
+      email,
+      projectDetails,
+      service,
+      budgetRange,
+      deadline,
+      requestId
     } = body;
 
-    // 3. Mandatory Field Validation
-    if (!body.fullName || !body.email || !body.projectDetails) {
-      console.warn("Validation failed: Core fields missing.");
+    // 2. Critical Field Validation
+    if (!fullName || !email || !projectDetails) {
+      console.error("API Error: Missing core project fields.");
       return NextResponse.json({ 
         success: false, 
-        error: 'Required fields missing: fullName, email, and projectDetails are mandatory.' 
+        error: "Required fields (fullName, email, projectDetails) are missing." 
       }, { status: 400 });
     }
 
-    // 4. Configuration Check (Server-Side Debugging)
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const emailPassword = process.env.EMAIL_APP_PASSWORD;
+    // 3. Database Operation: Supabase Insertion
+    // Using service role key to ensure successful insertion regardless of RLS constraints.
+    console.log("Step 1/2: Connecting to Supabase...");
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
-    console.log("Supabase URL & key present?", !!supabaseUrl, !!supabaseKey);
-    console.log("Admin Email & App Password present?", !!adminEmail, !!emailPassword);
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.error("Missing Supabase configuration.");
-      return NextResponse.json({ success: false, error: 'Database service misconfigured.' }, { status: 500 });
-    }
-
-    // 5. Database Insertion (Supabase)
-    const supabase = createClient(supabaseUrl, supabaseKey);
     const { error: dbError } = await supabase.from('requests').insert([
       {
         request_id: requestId,
         full_name: fullName.trim(),
         email: email.toLowerCase().trim(),
-        service: service,
+        service: service || 'general',
         project_details: projectDetails.trim(),
         budget_range: budgetRange,
         deadline: deadline,
@@ -66,90 +62,111 @@ export async function POST(req) {
     ]);
 
     if (dbError) {
-      console.error("Supabase insert error:", dbError.message);
-      // Continue to email notification even if DB fails for visibility
-    } else {
-      console.log("Supabase record created successfully.");
+      console.error("Supabase Database Failure:", dbError.message);
+      // Throw to be handled by the main catch block
+      throw new Error(`Cloud Database Error: ${dbError.message}`);
+    }
+    console.log("Step 1/2: Supabase record synchronized.");
+
+    // 4. Notification Operation: Nodemailer (SMTP)
+    console.log("Step 2/2: Initializing Nodemailer SMTP relay...");
+    
+    // Check if variables are present to avoid runtime errors
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !process.env.ADMIN_EMAIL) {
+      console.error("Configuration Error: SMTP credentials missing in environment.");
+      throw new Error("Server misconfigured: Email credentials missing.");
     }
 
-    // 6. Email Notification via NodeMailer (SMTP)
-    let emailStatus = "skipped";
-    if (adminEmail && emailPassword) {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: adminEmail,
-          pass: emailPassword,
-        },
-      });
-
-      const mailOptions = {
-        from: adminEmail,
-        to: adminEmail,
-        subject: `NEW STUDIO INQUIRY: ${fullName} (${requestId})`,
-        html: `
-          <div style="font-family: sans-serif; padding: 20px; color: #1e293b; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px;">
-            <h2 style="color: #4f46e5; margin-top: 0;">Lumina Project Brief</h2>
-            <p><strong>Client:</strong> ${fullName}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Service:</strong> ${service}</p>
-            <p><strong>Budget:</strong> ${budgetRange}</p>
-            <p><strong>Deadline:</strong> ${deadline}</p>
-            <p><strong>Request ID:</strong> ${requestId}</p>
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid #4f46e5;">
-              <p style="margin: 0; font-weight: bold; color: #4f46e5;">Project Vision:</p>
-              <p style="margin-top: 10px; font-style: italic;">${projectDetails}</p>
-            </div>
-          </div>
-        `,
-      };
-
-      console.log("Email payload prepared:", {
-        to: adminEmail,
-        subject: mailOptions.subject
-      });
-
-      try {
-        const info = await transporter.sendMail(mailOptions);
-        console.log("NodeMailer success:", info.messageId);
-        emailStatus = "success";
-      } catch (mailErr) {
-        console.error("NodeMailer failure:", mailErr.message);
-        emailStatus = "failed";
-      }
-    } else {
-      console.warn("Email skipped: Missing admin credentials in environment variables.");
-    }
-
-    // 7. Success Response
-    console.log("--- [END] Process Complete ---");
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Inquiry successfully transmitted.', 
-      requestId,
-      debug: {
-        db: dbError ? 'failed' : 'ok',
-        email: emailStatus
-      }
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
     });
 
+    const mailOptions = {
+      from: `"Lumina Studio System" <${process.env.GMAIL_USER}>`,
+      to: process.env.ADMIN_EMAIL,
+      subject: `NEW PROJECT BRIEF: ${fullName} (${requestId})`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 24px; padding: 40px; color: #0f172a;">
+          <div style="text-align: center; margin-bottom: 32px;">
+            <h1 style="font-size: 24px; font-weight: 800; color: #4f46e5; margin: 0; letter-spacing: -0.025em;">LUMINA CREATIVE STUDIO</h1>
+            <p style="font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 8px;">Inbound Client Inquiry</p>
+          </div>
+          
+          <div style="background: #f8fafc; border-radius: 16px; padding: 24px; margin-bottom: 32px;">
+            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Request ID:</strong> ${requestId}</p>
+            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Client:</strong> ${fullName}</p>
+            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Email:</strong> ${email}</p>
+            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Service Category:</strong> ${service}</p>
+            <p style="margin: 0 0 12px 0; font-size: 14px;"><strong style="color: #4f46e5;">Financial Tier:</strong> ${budgetRange}</p>
+            <p style="margin: 0; font-size: 14px;"><strong style="color: #4f46e5;">Deadline:</strong> ${deadline}</p>
+          </div>
+
+          <div style="margin-bottom: 32px;">
+            <h3 style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 12px;">The Creative Brief</h3>
+            <div style="font-size: 16px; line-height: 1.6; color: #334155; font-style: italic; border-left: 4px solid #4f46e5; padding-left: 20px;">
+              ${projectDetails.replace(/\n/g, '<br>')}
+            </div>
+          </div>
+
+          <div style="border-top: 1px solid #f1f5f9; padding-top: 32px; text-align: center;">
+            <p style="font-size: 11px; color: #94a3b8; margin: 0;">This email was generated by the Lumina Platform API.</p>
+          </div>
+        </div>
+      `,
+    };
+
+    console.log(`Step 2/2: Transmitting email to ${process.env.ADMIN_EMAIL}...`);
+    await transporter.sendMail(mailOptions);
+    console.log("Step 2/2: SMTP transmission successful.");
+
+    // 5. Finalize response
+    console.log("--- [END] Inquiry Successfully Processed ---");
+    return NextResponse.json({ 
+      success: true, 
+      message: "Form submitted successfully" 
+    }, { status: 200 });
+
   } catch (err) {
-    console.error("Fatal API Error:", err.message);
+    console.error("CRITICAL API FAILURE:", err.message);
+    
+    // Determine status code based on error context
+    let statusCode = 500;
+    if (err.message.includes("Required fields")) statusCode = 400;
+
     return NextResponse.json({ 
       success: false, 
-      error: 'Internal processing failure.',
-      details: err.message
-    }, { status: 500 });
+      error: err.message || "Internal server error" 
+    }, { status: statusCode });
   }
 }
 
 /**
- * Handle GET requests (Method Not Allowed)
+ * Handle OPTIONS preflight requests for CORS
+ */
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  });
+}
+
+/**
+ * Block unsupported methods
  */
 export async function GET() {
-  return NextResponse.json({ 
-    success: false, 
-    error: 'Method Not Allowed. Use POST to submit project inquiries.' 
-  }, { status: 405 });
+  return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 });
+}
+export async function PUT() {
+  return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 });
+}
+export async function DELETE() {
+  return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 });
 }

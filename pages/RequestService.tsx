@@ -65,24 +65,25 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // Use the standard /api/ endpoint which Vercel/Next maps from app/api/submit-form/route.js
+      // Point directly to the Next.js App Router API route
       const response = await fetch('/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
+      // Attempt to parse JSON response
       const text = await response.text();
       let result;
       try {
         result = JSON.parse(text);
       } catch (parseErr) {
-        console.error('Failed to parse response:', text);
-        throw new Error(`The studio server returned an invalid response (${response.status}).`);
+        console.error('Invalid JSON response:', text);
+        throw new Error(`The studio server returned an unexpected response (Error ${response.status}).`);
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || `The transmission failed (Status: ${response.status}).`);
+        throw new Error(result.error || `Uplink failure (Status ${response.status}).`);
       }
 
       // Success Path
@@ -92,7 +93,7 @@ const RequestService: React.FC = () => {
 
     } catch (err: any) {
       console.error('Submission Error:', err);
-      setErrorMsg(err.message || 'The studio uplink failed. Please check your connection.');
+      setErrorMsg(err.message || 'The studio uplink failed. Please check your network connection.');
     } finally {
       // CRITICAL: Always clear the loading state to stop "Transmitting..." hang
       setLoading(false);

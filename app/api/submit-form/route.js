@@ -2,43 +2,36 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
-// Force Node.js runtime to ensure Nodemailer works correctly in serverless
+// Force Node.js runtime for Nodemailer/SMTP compatibility
 export const runtime = 'nodejs';
 
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
- * 
- * Logic:
- * 1. Validate payload.
- * 2. Sync to Supabase.
- * 3. Dispatch Gmail notification.
- * 4. Return unified JSON.
  */
-
 export async function POST(req) {
   const tId = `TX-${Math.random().toString(36).substring(7).toUpperCase()}`;
   const now = new Date().toISOString();
   
-  console.log(`[${now}] [${tId}] --- FORM SUBMISSION START ---`);
+  console.log(`[${now}] [${tId}] --- API INVOCATION: FORM SUBMISSION ---`);
 
   try {
-    // 1. Parse JSON
+    // 1. Parse Payload
     const body = await req.json();
     const { fullName, email, projectDetails, service, budgetRange, deadline, requestId } = body;
 
-    console.log(`[${tId}] Data:`, JSON.stringify({ fullName, email, service, requestId }));
+    console.log(`[${tId}] Received Request ID: ${requestId} from ${email}`);
 
-    // 2. Validate
+    // 2. Validation
     if (!fullName || !email || !projectDetails || !requestId) {
-      console.error(`[${tId}] Error: Missing fields`);
+      console.error(`[${tId}] Validation Error: Required fields missing.`);
       return NextResponse.json({ 
         success: false, 
-        error: "Missing required project information." 
+        error: "Mandatory project fields are missing." 
       }, { status: 400 });
     }
 
-    // 3. Supabase Integration
-    console.log(`[${tId}] DB: Syncing to Cloud...`);
+    // 3. Supabase Integration (Service Role for bypass RLS)
+    console.log(`[${tId}] DB Sync: Connecting to Supabase...`);
     const supabase = createClient(
       process.env.SUPABASE_URL || '',
       process.env.SUPABASE_SERVICE_ROLE_KEY || ''
@@ -59,18 +52,19 @@ export async function POST(req) {
     ]);
 
     if (dbError) {
-      console.error(`[${tId}] DB Error:`, dbError.message);
-      throw new Error(`Database Uplink Failed: ${dbError.message}`);
+      console.error(`[${tId}] DB Error: ${dbError.message}`);
+      throw new Error(`Cloud Database Sync Failed: ${dbError.message}`);
     }
-    console.log(`[${tId}] DB: Success.`);
+    console.log(`[${tId}] DB Sync: Success. Record persistent.`);
 
-    // 4. Email Dispatch via Nodemailer (Gmail SMTP)
+    // 4. Admin Notification (Nodemailer SMTP)
     const gmailUser = process.env.GMAIL_USER;
     const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
     const adminEmail = process.env.ADMIN_EMAIL;
 
     if (gmailUser && gmailPass && adminEmail) {
-      console.log(`[${tId}] Email: Initializing SMTP...`);
+      console.log(`[${tId}] SMTP: Preparing dispatch via ${gmailUser}...`);
+      
       const transporter = nodemailer.createTransport({
         host: 'smtp.gmail.com',
         port: 465,
@@ -79,34 +73,38 @@ export async function POST(req) {
       });
 
       const mailOptions = {
-        from: `"Lumina Studio" <${gmailUser}>`,
+        from: `"Lumina System" <${gmailUser}>`,
         to: adminEmail,
-        subject: `NEW BRIEF: ${fullName} (${requestId})`,
+        subject: `[NEW PROJECT] ${fullName} - ${requestId}`,
         html: `
-          <div style="font-family: sans-serif; max-width: 600px; padding: 25px; border: 1px solid #eee; border-radius: 15px;">
-            <h2 style="color: #4f46e5;">Project Inquiry: ${requestId}</h2>
-            <p><strong>Client:</strong> ${fullName}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Service:</strong> ${service}</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+          <div style="font-family: sans-serif; max-width: 600px; padding: 30px; border: 1px solid #f1f5f9; border-radius: 24px; color: #1e293b;">
+            <h2 style="color: #4f46e5; margin-bottom: 24px;">New Creative Brief Received</h2>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 16px; margin-bottom: 24px;">
+              <p><strong>Request ID:</strong> ${requestId}</p>
+              <p><strong>Client:</strong> ${fullName}</p>
+              <p><strong>Email:</strong> ${email}</p>
+              <p><strong>Service:</strong> ${service}</p>
+              <p><strong>Budget:</strong> ${budgetRange}</p>
+            </div>
             <p><strong>Project Details:</strong></p>
-            <p style="white-space: pre-wrap; line-height: 1.6;">${projectDetails}</p>
+            <p style="white-space: pre-wrap; line-height: 1.6; color: #475569;">${projectDetails}</p>
           </div>
         `,
       };
 
       try {
+        // Await email dispatch to prevent function termination
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[${tId}] Email: Sent (ID: ${info.messageId})`);
+        console.log(`[${tId}] SMTP: Success. Message ID: ${info.messageId}`);
       } catch (emailErr) {
-        console.warn(`[${tId}] Email: Failed, but DB is updated. Error: ${emailErr.message}`);
-        // We don't fail the whole request if only the email notification lags
+        console.warn(`[${tId}] SMTP Warning: Notification delayed. ${emailErr.message}`);
+        // Do not throw here so user gets success for the DB record
       }
     } else {
-      console.warn(`[${tId}] Email: Skipped (Check Environment Variables)`);
+      console.warn(`[${tId}] SMTP Skip: Missing environment configuration.`);
     }
 
-    console.log(`[${tId}] --- FORM SUBMISSION COMPLETE (SUCCESS) ---`);
+    console.log(`[${tId}] --- SUBMISSION COMPLETED SUCCESSFULLY ---`);
     return NextResponse.json({ 
       success: true, 
       message: "Form submitted successfully",
@@ -114,14 +112,17 @@ export async function POST(req) {
     }, { status: 200 });
 
   } catch (err) {
-    console.error(`[${tId}] CRITICAL FAIL:`, err.message);
+    console.error(`[${tId}] CRITICAL SYSTEM ERROR:`, err.message);
     return NextResponse.json({ 
       success: false, 
-      error: err.message || "An unexpected error occurred during submission." 
+      error: err.message || "Uplink synchronization failed." 
     }, { status: 500 });
   }
 }
 
+/**
+ * Handle CORS Preflight
+ */
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -133,6 +134,9 @@ export async function OPTIONS() {
   });
 }
 
+/**
+ * Method Not Allowed
+ */
 export async function GET() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
 export async function PUT() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
 export async function DELETE() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }

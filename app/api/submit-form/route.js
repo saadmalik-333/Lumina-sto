@@ -2,53 +2,47 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
-// Force Node.js runtime to ensure Nodemailer (SMTP) works correctly in serverless
+// Force Node.js runtime to ensure Nodemailer works correctly in serverless
 export const runtime = 'nodejs';
 
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
  * 
- * Flow:
- * 1. Validate incoming JSON payload.
- * 2. Persist data to Supabase using Service Role Key.
- * 3. Dispatch admin notification via Gmail SMTP.
- * 4. Return standard JSON response to frontend.
+ * Logic:
+ * 1. Validate payload.
+ * 2. Sync to Supabase.
+ * 3. Dispatch Gmail notification.
+ * 4. Return unified JSON.
  */
 
 export async function POST(req) {
-  const transactionId = `TX-${Math.random().toString(36).substring(7).toUpperCase()}`;
-  const timestamp = new Date().toISOString();
+  const tId = `TX-${Math.random().toString(36).substring(7).toUpperCase()}`;
+  const now = new Date().toISOString();
   
-  console.log(`[${timestamp}] [${transactionId}] --- NEW SUBMISSION RECEIVED ---`);
+  console.log(`[${now}] [${tId}] --- FORM SUBMISSION START ---`);
 
   try {
-    // 1. Parse Request Body
+    // 1. Parse JSON
     const body = await req.json();
     const { fullName, email, projectDetails, service, budgetRange, deadline, requestId } = body;
 
-    console.log(`[${transactionId}] Payload:`, JSON.stringify(body));
+    console.log(`[${tId}] Data:`, JSON.stringify({ fullName, email, service, requestId }));
 
-    // 2. Strict Field Validation
+    // 2. Validate
     if (!fullName || !email || !projectDetails || !requestId) {
-      console.error(`[${transactionId}] Error: Missing mandatory fields.`);
+      console.error(`[${tId}] Error: Missing fields`);
       return NextResponse.json({ 
         success: false, 
-        error: "Critical fields are missing (Name, Email, Details, or ID)." 
+        error: "Missing required project information." 
       }, { status: 400 });
     }
 
-    // 3. Supabase Database Insertion
-    console.log(`[${transactionId}] DB Operation: Connecting to Supabase...`);
-    
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error(`[${transactionId}] Config Error: Supabase credentials missing.`);
-      throw new Error("Server-side database configuration is missing.");
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // 3. Supabase Integration
+    console.log(`[${tId}] DB: Syncing to Cloud...`);
+    const supabase = createClient(
+      process.env.SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    );
 
     const { error: dbError } = await supabase.from('requests').insert([
       {
@@ -60,69 +54,59 @@ export async function POST(req) {
         budget_range: budgetRange,
         deadline: deadline,
         status: 'Pending',
-        created_at: timestamp
+        created_at: now
       }
     ]);
 
     if (dbError) {
-      console.error(`[${transactionId}] DB Sync Failed:`, dbError.message);
-      throw new Error(`Database Insertion Error: ${dbError.message}`);
+      console.error(`[${tId}] DB Error:`, dbError.message);
+      throw new Error(`Database Uplink Failed: ${dbError.message}`);
     }
-    console.log(`[${transactionId}] DB Sync: Success. Record ${requestId} created.`);
+    console.log(`[${tId}] DB: Success.`);
 
-    // 4. Email Notification via NodeMailer (SMTP)
+    // 4. Email Dispatch via Nodemailer (Gmail SMTP)
     const gmailUser = process.env.GMAIL_USER;
-    const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, ''); // Ensure no spaces in App Password
+    const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
     const adminEmail = process.env.ADMIN_EMAIL;
 
     if (gmailUser && gmailPass && adminEmail) {
-      console.log(`[${transactionId}] Email Operation: Initializing SMTP...`);
-      
+      console.log(`[${tId}] Email: Initializing SMTP...`);
       const transporter = nodemailer.createTransport({
         host: 'smtp.gmail.com',
         port: 465,
-        secure: true, // Use SSL/TLS
-        auth: {
-          user: gmailUser,
-          pass: gmailPass,
-        },
+        secure: true,
+        auth: { user: gmailUser, pass: gmailPass },
       });
 
       const mailOptions = {
         from: `"Lumina Studio" <${gmailUser}>`,
         to: adminEmail,
-        subject: `NEW PROJECT INQUIRY: ${fullName} (${requestId})`,
+        subject: `NEW BRIEF: ${fullName} (${requestId})`,
         html: `
-          <div style="font-family: sans-serif; color: #1e293b; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-            <h1 style="color: #4f46e5; font-size: 20px;">New Project Brief</h1>
-            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
-              <p><strong>ID:</strong> ${requestId}</p>
-              <p><strong>Client:</strong> ${fullName}</p>
-              <p><strong>Email:</strong> ${email}</p>
-              <p><strong>Service:</strong> ${service}</p>
-              <p><strong>Budget:</strong> ${budgetRange}</p>
-            </div>
-            <p><strong>Details:</strong></p>
+          <div style="font-family: sans-serif; max-width: 600px; padding: 25px; border: 1px solid #eee; border-radius: 15px;">
+            <h2 style="color: #4f46e5;">Project Inquiry: ${requestId}</h2>
+            <p><strong>Client:</strong> ${fullName}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Service:</strong> ${service}</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p><strong>Project Details:</strong></p>
             <p style="white-space: pre-wrap; line-height: 1.6;">${projectDetails}</p>
-            <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 20px 0;" />
-            <p style="font-size: 11px; color: #94a3b8;">System notification from Lumina Creative Studio</p>
           </div>
         `,
       };
 
-      // Await the email send to ensure the function doesn't terminate early
       try {
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[${transactionId}] Email Success: Message sent (ID: ${info.messageId})`);
+        console.log(`[${tId}] Email: Sent (ID: ${info.messageId})`);
       } catch (emailErr) {
-        console.warn(`[${transactionId}] Email Warning: SMTP failed, but DB record is safe. Error: ${emailErr.message}`);
-        // We don't throw here to avoid failing the whole request if only the email notification lags
+        console.warn(`[${tId}] Email: Failed, but DB is updated. Error: ${emailErr.message}`);
+        // We don't fail the whole request if only the email notification lags
       }
     } else {
-      console.warn(`[${transactionId}] Email Skip: Credentials missing from environment.`);
+      console.warn(`[${tId}] Email: Skipped (Check Environment Variables)`);
     }
 
-    console.log(`[${transactionId}] --- REQUEST COMPLETED SUCCESSFULLY ---`);
+    console.log(`[${tId}] --- FORM SUBMISSION COMPLETE (SUCCESS) ---`);
     return NextResponse.json({ 
       success: true, 
       message: "Form submitted successfully",
@@ -130,17 +114,14 @@ export async function POST(req) {
     }, { status: 200 });
 
   } catch (err) {
-    console.error(`[${transactionId}] CRITICAL ERROR:`, err.message);
+    console.error(`[${tId}] CRITICAL FAIL:`, err.message);
     return NextResponse.json({ 
       success: false, 
-      error: err.message || "Internal server error" 
+      error: err.message || "An unexpected error occurred during submission." 
     }, { status: 500 });
   }
 }
 
-/**
- * Handle CORS and Options Preflight
- */
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -152,9 +133,6 @@ export async function OPTIONS() {
   });
 }
 
-/**
- * Method Not Allowed Handlers
- */
 export async function GET() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
 export async function PUT() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
 export async function DELETE() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }

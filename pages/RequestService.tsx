@@ -65,24 +65,24 @@ const RequestService: React.FC = () => {
     const newRequestId = generateRequestId();
 
     try {
-      // Pointing directly to the absolute app route to avoid "relocated" errors from legacy /api folders
-      const response = await fetch('/app/api/submit-form', {
+      // Use the standard /api/ endpoint which Vercel/Next maps from app/api/submit-form/route.js
+      const response = await fetch('/api/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, requestId: newRequestId })
       });
 
-      // Handle raw non-JSON errors gracefully
+      const text = await response.text();
       let result;
-      const textResponse = await response.text();
       try {
-        result = JSON.parse(textResponse);
+        result = JSON.parse(text);
       } catch (parseErr) {
-        throw new Error(`Server Communication Error (${response.status})`);
+        console.error('Failed to parse response:', text);
+        throw new Error(`The studio server returned an invalid response (${response.status}).`);
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || `Uplink failed with status ${response.status}`);
+        throw new Error(result.error || `The transmission failed (Status: ${response.status}).`);
       }
 
       // Success Path
@@ -94,7 +94,7 @@ const RequestService: React.FC = () => {
       console.error('Submission Error:', err);
       setErrorMsg(err.message || 'The studio uplink failed. Please check your connection.');
     } finally {
-      // CRITICAL: Always clear the transmitting state
+      // CRITICAL: Always clear the loading state to stop "Transmitting..." hang
       setLoading(false);
     }
   };

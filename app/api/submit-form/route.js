@@ -5,20 +5,19 @@ import nodemailer from 'nodemailer';
 /**
  * PRODUCTION BACKEND API: /app/api/submit-form/route.js
  * 
- * Handles project inquiries for Lumina Studio:
- * 1. Validates incoming payload.
- * 2. Persists data to Supabase using Service Role (Bypasses RLS).
- * 3. Dispatches notification via Gmail SMTP.
+ * Logic Flow:
+ * 1. Validate mandatory project data.
+ * 2. Sync to Supabase using Service Role (bypasses RLS).
+ * 3. Send email notification via Gmail SMTP.
  */
 
 export async function POST(req) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] --- INCOMING FORM SUBMISSION ---`);
+  const logPrefix = `[API ${new Date().toISOString()}]`;
+  console.log(`${logPrefix} --- START Form Submission ---`);
   
   try {
-    // 1. Parse Request Body
     const body = await req.json();
-    console.log(`[${timestamp}] Payload:`, JSON.stringify(body, null, 2));
+    console.log(`${logPrefix} Received Payload:`, JSON.stringify(body, null, 2));
 
     const {
       fullName,
@@ -30,18 +29,24 @@ export async function POST(req) {
       requestId
     } = body;
 
-    // 2. Critical Field Validation
+    // 1. Mandatory Field Validation
     if (!fullName || !email || !projectDetails || !requestId) {
-      console.error(`[${timestamp}] Validation Failed: Missing required fields.`);
+      console.error(`${logPrefix} Validation Failed: Missing core fields.`);
       return NextResponse.json({ 
         success: false, 
-        error: "Mandatory fields (Name, Email, Details, ID) are missing." 
+        error: "Required fields (fullName, email, projectDetails, requestId) are missing." 
       }, { status: 400 });
     }
 
-    // 3. Database Operation: Supabase Sync
-    console.log(`[${timestamp}] DB Sync: Initializing Supabase client...`);
+    // 2. Database Operation: Supabase Insertion
+    console.log(`${logPrefix} DB Sync: Connecting to Supabase...`);
     
+    // Validate Env Vars
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.error(`${logPrefix} DB Sync Error: Environment variables missing.`);
+      throw new Error("Cloud Database configuration missing on server.");
+    }
+
     const supabase = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -57,78 +62,80 @@ export async function POST(req) {
         budget_range: budgetRange,
         deadline: deadline,
         status: 'Pending',
-        created_at: timestamp
+        created_at: new Date().toISOString()
       }
     ]);
 
     if (dbError) {
-      console.error(`[${timestamp}] DB Sync Error:`, dbError.message);
-      throw new Error(`Database synchronization failed: ${dbError.message}`);
+      console.error(`${logPrefix} DB Sync Failure:`, dbError.message);
+      throw new Error(`Database error: ${dbError.message}`);
     }
-    console.log(`[${timestamp}] DB Sync: Successfully created record ${requestId}`);
+    console.log(`${logPrefix} DB Sync Success: Record ${requestId} created.`);
 
-    // 4. Notification Operation: Nodemailer (SMTP)
-    console.log(`[${timestamp}] Notification: Preparing Gmail SMTP relay...`);
+    // 3. Notification Operation: Nodemailer (SMTP)
+    console.log(`${logPrefix} Emailing: Initializing Gmail SMTP relay...`);
     
-    const { GMAIL_USER, GMAIL_APP_PASSWORD, ADMIN_EMAIL } = process.env;
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, ''); // Ensure no spaces
+    const adminEmail = process.env.ADMIN_EMAIL;
 
-    if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !ADMIN_EMAIL) {
-      console.warn(`[${timestamp}] Notification: Environment variables missing. Skipping email dispatch.`);
+    if (!gmailUser || !gmailPass || !adminEmail) {
+      console.warn(`${logPrefix} Email Skip: SMTP credentials (GMAIL_USER, GMAIL_APP_PASSWORD, ADMIN_EMAIL) missing.`);
     } else {
       const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
-          user: GMAIL_USER,
-          pass: GMAIL_APP_PASSWORD,
+          user: gmailUser,
+          pass: gmailPass,
         },
       });
 
       const mailOptions = {
-        from: `"Lumina Platform" <${GMAIL_USER}>`,
-        to: ADMIN_EMAIL,
-        subject: `NEW PROJECT BRIEF: ${fullName} (${requestId})`,
+        from: `"Lumina Platform" <${gmailUser}>`,
+        to: adminEmail,
+        subject: `NEW PROJECT: ${fullName} (${requestId})`,
         html: `
-          <div style="font-family: sans-serif; max-width: 600px; padding: 30px; border: 1px solid #f1f5f9; border-radius: 20px; color: #1e293b;">
-            <h1 style="color: #4f46e5; margin-bottom: 20px;">Lumina Studio Inquiry</h1>
-            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px;">
-              <p><strong>Request ID:</strong> ${requestId}</p>
+          <div style="font-family: sans-serif; color: #1e293b; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h1 style="color: #4f46e5; margin-bottom: 20px;">Project Inquiry</h1>
+            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+              <p><strong>ID:</strong> ${requestId}</p>
               <p><strong>Client:</strong> ${fullName}</p>
               <p><strong>Email:</strong> ${email}</p>
               <p><strong>Service:</strong> ${service}</p>
               <p><strong>Budget:</strong> ${budgetRange}</p>
               <p><strong>Deadline:</strong> ${deadline}</p>
             </div>
-            <h3 style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;">The Brief</h3>
+            <p><strong>Details:</strong></p>
             <p style="white-space: pre-wrap; line-height: 1.6;">${projectDetails}</p>
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
-            <p style="font-size: 11px; color: #94a3b8; text-align: center;">Sent via Lumina Creative Studio Production API</p>
+            <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 20px 0;" />
+            <p style="font-size: 11px; color: #94a3b8;">System notification from Lumina Creative Studio</p>
           </div>
         `,
       };
 
-      // We await the email explicitly to ensure Vercel doesn't kill the function before completion
-      await transporter.sendMail(mailOptions);
-      console.log(`[${timestamp}] Notification: Admin email dispatched to ${ADMIN_EMAIL}`);
+      // CRITICAL: Await the send to ensure the serverless function doesn't terminate early
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`${logPrefix} Email Success: Message sent (ID: ${info.messageId})`);
     }
 
-    console.log(`[${timestamp}] --- SUBMISSION COMPLETED SUCCESSFULLY ---`);
+    console.log(`${logPrefix} --- END Form Submission Success ---`);
     return NextResponse.json({ 
       success: true, 
       requestId,
-      message: "Form processed and notifications sent." 
+      message: "Submission processed successfully." 
     }, { status: 200 });
 
   } catch (err) {
-    console.error(`[${timestamp}] CRITICAL FAILURE:`, err.message);
+    console.error(`${logPrefix} CRITICAL API ERROR:`, err.message);
     return NextResponse.json({ 
       success: false, 
-      error: err.message || "An internal error occurred while processing the request." 
+      error: err.message || "Internal server error" 
     }, { status: 500 });
   }
 }
 
 /**
- * Handle CORS Preflight
+ * Handle CORS and Options Preflight
  */
 export async function OPTIONS() {
   return new Response(null, {
@@ -142,9 +149,8 @@ export async function OPTIONS() {
 }
 
 /**
- * Handle Unsupported Methods
+ * Block Unsupported Methods
  */
 export async function GET() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
 export async function PUT() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
 export async function DELETE() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
-export async function PATCH() { return NextResponse.json({ success: false, error: "Method Not Allowed" }, { status: 405 }); }
